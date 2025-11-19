@@ -1,51 +1,62 @@
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_svc::log::EspLogger;
 use esp_idf_sys::{
-    // Funktionen und Konstanten für die Heap-Prüfung
-    heap_caps_get_total_size,
-    MALLOC_CAP_DMA,
-    MALLOC_CAP_INTERNAL,
-    MALLOC_CAP_SPIRAM,
+    heap_caps_get_total_size, EspError, MALLOC_CAP_DMA, MALLOC_CAP_INTERNAL, MALLOC_CAP_SPIRAM,
 };
 
-fn main() -> anyhow::Result<()> {
-    // 1. Initialisierung der IDF Services (für Logging und Systemfunktionen)
+/// Entry point of the application.
+/// Returns Result<(), EspError> to allow using the '?' operator for easy error handling.
+fn main() -> Result<(), EspError> {
+    // 1. Initialize IDF services
+    // This sets up the system logging so we can see output on the serial monitor.
     EspLogger::initialize_default();
-    let _peripherals = Peripherals::new()?;
 
-    // --- 2. Speicherabfrage ---
+    // 2. Initialize Peripherals
+    // We use .take() instead of .new(). This ensures we get safe, exclusive access
+    // to the hardware. It returns a Result, so we handle errors with '?'.
+    let _peripherals = Peripherals::take()?;
 
-    // Die Kombination MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA erfasst den Großteil des nutzbaren internen DRAM
+    // --- 3. Memory Query ---
+
+    // We use 'unsafe' here because we are calling C functions from the ESP-IDF framework directly.
+    // Rust cannot verify the safety of these external C functions at compile time.
+
+    // Query Internal DRAM:
+    // MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA represents the main internal memory
+    // capable of DMA operations (where stack and data usually live).
     let internal_ram_bytes =
         unsafe { heap_caps_get_total_size(MALLOC_CAP_INTERNAL | MALLOC_CAP_DMA) };
 
-    // MALLOC_CAP_SPIRAM erfasst den gesamten externen PSRAM (SPIRAM)
+    // Query External SPIRAM (PSRAM):
+    // MALLOC_CAP_SPIRAM refers specifically to the external SPI-connected RAM.
     let external_psram_bytes = unsafe { heap_caps_get_total_size(MALLOC_CAP_SPIRAM) };
 
-    // --- 3. Ausgabe der Ergebnisse ---
+    // --- 4. Output Results ---
 
-    println!("\n--- ESP32 Speicherauswertung ---");
+    println!("\n--- ESP32 Memory Analysis ---");
 
-    // Ausgabe des internen RAM in KB
+    // Print Internal Memory size
     println!(
-        "🏭 Interner DRAM (Data/Stack): {} Bytes ({:.2} KB)",
+        "🏭 Internal DRAM (Data/Stack): {} Bytes ({:.2} KB)",
         internal_ram_bytes,
         internal_ram_bytes as f32 / 1024.0
     );
 
-    // Ausgabe des externen SPIRAM in MB
+    // Print External Memory size
     println!(
-        "💾 Externer SPIRAM (PSRAM): {} Bytes ({:.2} MB)",
+        "💾 External SPIRAM (PSRAM):    {} Bytes ({:.2} MB)",
         external_psram_bytes,
         external_psram_bytes as f32 / 1024.0 / 1024.0
     );
 
     println!("---------------------------------");
 
+    // Logic check to see if SPIRAM is actually active
     if external_psram_bytes > 0 {
-        println!("✅ Ergebnis: **SPIRAM ist VORHANDEN** und verfügbar (Wahrscheinlich ein WROVER-Modul).");
+        println!("✅ Result: **SPIRAM is PRESENT** and available.");
     } else {
-        println!("❌ Ergebnis: **Kein SPIRAM (PSRAM) gefunden** (Wahrscheinlich ein WROOM-Modul).");
+        println!("❌ Result: **No SPIRAM (PSRAM) found**.");
+        println!("   (If you expected SPIRAM, check your sdkconfig or board type)");
     }
 
     Ok(())
