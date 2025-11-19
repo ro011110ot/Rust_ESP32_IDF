@@ -8,13 +8,6 @@ members = [
 ]
 resolver = "2"
 
-[workspace.dependencies.esp-hal]
-version = "1.0.0"
-features = [
-    "esp32",
-    "unstable",
-]
-
 [profile.dev]
 opt-level = "z"
 lto = "fat"
