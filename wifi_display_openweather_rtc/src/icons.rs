@@ -1,0 +1,48 @@
+use embedded_graphics::image::{Image, ImageRaw};
+use embedded_graphics::pixelcolor::Rgb565;
+use embedded_graphics::prelude::*;
+
+// ===============================
+// 40x40 pixel weather icons
+// Monochrome (1-bit) bitmaps
+// ===============================
+//
+// Each icon is 40x40 px = 200 bytes (1-bit per pixel, packed).
+// These icons were generated for minimal memory + crisp display.
+//
+
+// ---------- SUN ----------
+const SUN_ICON_DATA: &[u8] = include_bytes!("icons/sun_40x40.raw");
+pub fn sun_icon() -> ImageRaw<'static, Rgb565> {
+    ImageRaw::new(SUN_ICON_DATA, 40)
+}
+
+// ---------- CLOUD ----------
+const CLOUD_ICON_DATA: &[u8] = include_bytes!("icons/cloud_40x40.raw");
+pub fn cloud_icon() -> ImageRaw<'static, Rgb565> {
+    ImageRaw::new(CLOUD_ICON_DATA, 40)
+}
+
+// ---------- RAIN ----------
+const RAIN_ICON_DATA: &[u8] = include_bytes!("icons/rain_40x40.raw");
+pub fn rain_icon() -> ImageRaw<'static, Rgb565> {
+    ImageRaw::new(RAIN_ICON_DATA, 40)
+}
+
+// ---------- THUNDER ----------
+const THUNDER_ICON_DATA: &[u8] = include_bytes!("icons/thunder_40x40.raw");
+pub fn thunder_icon() -> ImageRaw<'static, Rgb565> {
+    ImageRaw::new(THUNDER_ICON_DATA, 40)
+}
+
+// ---------- SNOW ----------
+const SNOW_ICON_DATA: &[u8] = include_bytes!("icons/snow_40x40.raw");
+pub fn snow_icon() -> ImageRaw<'static, Rgb565> {
+    ImageRaw::new(SNOW_ICON_DATA, 40)
+}
+
+// ---------- FOG ----------
+const FOG_ICON_DATA: &[u8] = include_bytes!("icons/fog_40x40.raw");
+pub fn fog_icon() -> ImageRaw<'static, Rgb565> {
+    ImageRaw::new(FOG_ICON_DATA, 40)
+}

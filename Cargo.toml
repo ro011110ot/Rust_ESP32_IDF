@@ -1,0 +1,28 @@
+[workspace]
+members = [
+    "check_spiram",
+    "wifi",
+    "wifi_display",
+    "wifi_display_openweather",
+    "wifi_display_openweather_rtc",
+]
+resolver = "2"
+
+[workspace.dependencies.esp-hal]
+version = "1.0.0"
+features = [
+    "esp32",
+    "unstable",
+]
+
+[profile.dev]
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+debug = 2
+debug-assertions = false
+overflow-checks = false
+incremental = false
+
+[profile.release]
+opt-level = "s"

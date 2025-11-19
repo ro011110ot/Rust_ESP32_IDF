@@ -1,0 +1,37 @@
+# Rust
+/target/
+Cargo.lock
+
+# ESP-IDF
+/build/
+/dist/
+sdkconfig
+
+# Embuild
+.embuild/
+
+# IDEs and editors
+.idea/
+.vscode/
+*.iml
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+# Secrets nicht committen!
+secrets.toml
+
+# Backup-Dateien
+*.toml.backup
+/scripts/weather_icons/cloud.png
+/scripts/weather_icons/fog.png
+/scripts/weather_icons/moon.png
+/scripts/weather_icons/partly_sunny.png
+/scripts/weather_icons/rain.png
+/scripts/weather_icons/snow.png
+/scripts/weather_icons/sun.png
+/scripts/weather_icons/thunder.png
+
