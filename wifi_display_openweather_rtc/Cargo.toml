@@ -17,23 +17,24 @@ default = []
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
-esp-idf-svc = { version = "0.51", features = ["alloc"] }
-esp-idf-sys = { version = "0.36" }
-log = "0.4"
-embedded-svc = "0.28"
+embedded-hal = { workspace = true }
+esp-idf-svc = { workspace = true, features = ["alloc"] }
+esp-idf-sys = { workspace = true }
+log = { workspace = true }
+embedded-svc = { workspace = true }
 
 
 
 # Display dependencies
-embedded-graphics = "0.8"
-embedded-hal = "1.0.0"
-mipidsi = "0.9"
-anyhow = "1.0.100"
-serde = { version = "1.0.228", features = ["derive"] }
-serde_json = "1.0.128"
-toml = "0.9.8"
-profont = "0.7.0"
-chrono = "0.4.42"
+embedded-graphics = { workspace = true }
+mipidsi = { workspace = true }
+anyhow = { workspace = true }
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+toml = { workspace = true }
+profont = { workspace = true }
+chrono = { workspace = true }
+
 
 # --- Optional Embassy Integration ---
 # esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }

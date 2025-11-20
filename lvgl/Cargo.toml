@@ -1,5 +1,5 @@
 [package]
-name = "wifi_display_openweather"
+name = "lvgl"
 version = "0.1.0"
 authors = ["ro011110ot <ro011110ot@gmail.com>"]
 edition = "2021"
@@ -7,32 +7,23 @@ resolver = "2"
 rust-version = "1.77"
 
 [[bin]]
-name = "wifi_display_openweather"
+name = "lvgl"
 harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+
 
 
 [features]
 default = []
-
-experimental = ["esp-idf-svc/experimental"]
-
 [dependencies]
-esp-idf-svc = { workspace = true, features = ["alloc"] }
+esp-idf-hal = { workspace = true, features = ["std", "alloc"] }
+esp-idf-svc = { workspace = true }
 esp-idf-sys = { workspace = true }
-embedded-svc = { workspace = true }
-
-
-
-# Display dependencies
-embedded-graphics = { workspace = true }
-mipidsi = { workspace = true }
-serde = { workspace = true, features = ["derive"] }
-serde_json = { workspace = true }
-profont = { workspace = true }
 embedded-hal = { workspace = true }
 log = { workspace = true }
 anyhow = { workspace = true }
+serde = { workspace = true }
 toml = { workspace = true }
+
 
 # --- Optional Embassy Integration ---
 # esp-idf-svc = { version = "0.51", features = ["critical-section", "embassy-time-driver", "embassy-sync"] }
