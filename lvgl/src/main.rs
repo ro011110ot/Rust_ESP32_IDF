@@ -1,6 +1,3 @@
-use esp_idf_hal::sys;
-use esp_idf_svc::log::EspLogger;
-use esp_idf_svc::sys::link_patches;
 use esp_idf_sys as _; // link patches
 fn main() {
     // It is necessary to call this function once. Otherwise, some patches to the runtime
