@@ -1,27 +1,27 @@
 // === IMPORTS ===
-// Core functions for low-level pointer operations
+// Core-Funktionen für Low-Level Pointer-Operationen
 use core::ptr::addr_of_mut;
 
-// Embedded Graphics - Library for drawing on displays
+// Embedded Graphics - Bibliothek zum Zeichnen auf Displays
 use embedded_graphics::{
-    pixelcolor::Rgb565, // 16-bit color format (5 bits Red, 6 bits Green, 5 bits Blue)
-    prelude::*,         // Common traits for drawing operations
-    primitives::{PrimitiveStyle, Rectangle}, // Basic shapes like rectangles
+    pixelcolor::Rgb565, // 16-Bit Farbformat (5 Bit Rot, 6 Bit Grün, 5 Bit Blau)
+    prelude::*,         // Basis-Traits für Zeichenoperationen
+    primitives::{PrimitiveStyle, Rectangle}, // Grundformen wie Rechtecke
 };
 
 // Embedded HAL - Hardware Abstraction Layer Traits
 use embedded_hal::digital::OutputPin as OutputPinTrait;
-// Trait for digital output pins
+// Trait für digitale Ausgangspins
 use embedded_hal::spi::SpiDevice;
-// Trait for SPI devices
+// Trait für SPI-Geräte
 
-// ESP-IDF Service Library - Wrapper for the ESP-IDF Framework
+// ESP-IDF Service Bibliothek - Wrapper für ESP-IDF Framework
 use esp_idf_svc::hal::{
-    delay::FreeRtos,                        // FreeRTOS delay functions
-    gpio::{AnyIOPin, OutputPin, PinDriver}, // GPIO pin management
-    peripherals::Peripherals,               // Access to hardware peripherals
-    prelude::*,                             // Frequently used traits
-    spi::{config::Config, SpiDeviceDriver, SpiDriver, SpiDriverConfig}, // SPI drivers
+    delay::FreeRtos,                        // FreeRTOS Delay-Funktionen
+    gpio::{AnyIOPin, OutputPin, PinDriver}, // GPIO Pin-Verwaltung
+    peripherals::Peripherals,               // Zugriff auf Hardware-Peripherie
+    prelude::*,                             // Häufig genutzte Traits
+    spi::{config::Config, SpiDeviceDriver, SpiDriver, SpiDriverConfig}, // SPI-Treiber
 };
 use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
@@ -29,75 +29,74 @@ use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 // Logging
 use log::*;
 
-// Import secrets module (assumes a secrets.rs file exists)
+//use secret.toml
 mod secrets;
-// Display driver for ST7789 TFT displays
+// Display-Treiber für ST7789 TFT-Display
 use mipidsi::{
-    models::ST7789,                        // ST7789 Display Model
-    options::{ColorInversion, ColorOrder}, // Display configuration options
-    Builder,                               // Builder pattern for display initialization
+    models::ST7789,                        // ST7789 Display-Modell
+    options::{ColorInversion, ColorOrder}, // Display-Konfigurationsoptionen
+    Builder,                               // Builder-Pattern für Display-Initialisierung
 };
 use secrets::Secrets;
 
 // === CUSTOM ERROR TYPE ===
-// Custom error type that implements embedded-hal 1.0 Error traits.
-// This is necessary because ESP-IDF's native EspError does not directly implement
-// the generic traits required by the display driver (mipidsi).
+// Eigener Fehlertyp, der die embedded-hal 1.0 Error-Traits implementiert
+// Notwendig, weil ESP-IDF's EspError diese Traits nicht direkt implementiert
 
 #[derive(Debug)]
 struct CustomError;
 
-// Implementation of the SPI Error trait for our CustomError
+// Implementierung des SPI-Error-Traits für unseren CustomError
 impl embedded_hal::spi::Error for CustomError {
     fn kind(&self) -> embedded_hal::spi::ErrorKind {
-        // Always returns "Other" - sufficient for simple error handling here
+        // Gibt immer "Other" zurück - für einfache Fehlerbehandlung ausreichend
         embedded_hal::spi::ErrorKind::Other
     }
 }
 
-// Implementation of the Digital Error trait for our CustomError
+// Implementierung des Digital-Error-Traits für unseren CustomError
 impl embedded_hal::digital::Error for CustomError {
     fn kind(&self) -> embedded_hal::digital::ErrorKind {
-        // Always returns "Other"
+        // Gibt immer "Other" zurück
         embedded_hal::digital::ErrorKind::Other
     }
 }
 
 // === SPI WRAPPER ===
-// Wrapper around ESP-IDF's SpiDeviceDriver to implement embedded-hal 1.0 traits.
-// Required because mipidsi expects embedded-hal 1.0, but ESP-IDF has its own API style.
+// Wrapper um ESP-IDF's SpiDeviceDriver, um embedded-hal 1.0 Traits zu implementieren
+// Notwendig weil mipidsi embedded-hal 1.0 erwartet, ESP-IDF aber eine eigene API hat
 struct SpiWrapper<'a> {
-    spi: SpiDeviceDriver<'a, SpiDriver<'a>>, // The actual ESP-IDF SPI driver
+    spi: SpiDeviceDriver<'a, SpiDriver<'a>>, // Der eigentliche ESP-IDF SPI-Treiber
 }
 
-// Defines the Error type for this SPI Wrapper
+// Definiert den Error-Typ für diesen SPI-Wrapper
 impl embedded_hal::spi::ErrorType for SpiWrapper<'_> {
     type Error = CustomError;
 }
 
-// Implements the SpiDevice trait - the main interface for SPI communication
+// Implementiert das SpiDevice-Trait - die Hauptschnittstelle für SPI-Kommunikation
 impl SpiDevice for SpiWrapper<'_> {
     fn transaction(
         &mut self,
         operations: &mut [embedded_hal::spi::Operation<'_, u8>],
     ) -> Result<(), Self::Error> {
-        // Executes an SPI transaction - can contain multiple operations
+        // Führt eine SPI-Transaktion aus - kann mehrere Operationen enthalten
         for op in operations {
             match op {
-                // Write operation: Sends data via SPI
+                // Schreiboperation: Sendet Daten über SPI
                 embedded_hal::spi::Operation::Write(data) => {
                     self.spi.write(data).map_err(|_| CustomError)?;
                 }
-                // Transfer operation: Sends and receives simultaneously
+                // Transfer-Operation: Sendet und empfängt gleichzeitig
                 embedded_hal::spi::Operation::Transfer(read, write) => {
                     self.spi.transfer(read, write).map_err(|_| CustomError)?;
                 }
-                // Transfer-In-Place: Uses the same buffer for sending and receiving
+                // Transfer-In-Place: Nutzt denselben Buffer für Senden und Empfangen
                 embedded_hal::spi::Operation::TransferInPlace(data) => {
-                    let temp = data.to_vec(); // Create a temporary copy for the ESP-IDF API
+                    let temp = data.to_vec(); // Temporäre Kopie für ESP-IDF API
                     self.spi.transfer(data, &temp).map_err(|_| CustomError)?;
                 }
-                _ => {} // Ignore other operations
+                _ => {} // Andere Operationen werden ignoriert
             }
         }
         Ok(())
@@ -105,48 +104,46 @@ impl SpiDevice for SpiWrapper<'_> {
 }
 
 // === DC PIN WRAPPER ===
-// Wrapper for the Data/Command pin of the display.
-// This pin signals to the display controller whether the incoming bytes are data or commands.
+// Wrapper für den Data/Command Pin des Displays
+// Dieser Pin signalisiert dem Display, ob Daten oder Befehle gesendet werden
 struct DcPinWrapper<'a> {
     pin: PinDriver<'a, esp_idf_svc::hal::gpio::AnyOutputPin, esp_idf_svc::hal::gpio::Output>,
 }
 
-// Defines the Error type for the DC pin
+// Definiert den Error-Typ für den DC-Pin
 impl embedded_hal::digital::ErrorType for DcPinWrapper<'_> {
     type Error = CustomError;
 }
 
-// Implements the OutputPin trait for digital output
+// Implementiert das OutputPin-Trait für digitale Ausgabe
 impl OutputPinTrait for DcPinWrapper<'_> {
-    // Sets the pin to LOW (0V) -> Command Mode
+    // Setzt den Pin auf LOW (0V)
     fn set_low(&mut self) -> Result<(), Self::Error> {
         self.pin.set_low().map_err(|_| CustomError)
     }
 
-    // Sets the pin to HIGH (3.3V) -> Data Mode
+    // Setzt den Pin auf HIGH (3.3V)
     fn set_high(&mut self) -> Result<(), Self::Error> {
         self.pin.set_high().map_err(|_| CustomError)
     }
 }
 
-// === MAIN PROGRAM ===
+// === HAUPTPROGRAMM ===
 fn main() -> anyhow::Result<()> {
-    // Link patches required for ESP-IDF functionality
     esp_idf_svc::sys::link_patches();
-    // Initialize the default logger (prints to serial output)
     esp_idf_svc::log::EspLogger::initialize_default();
 
     info!("=== Starting WiFi + ST7789 Display ===");
 
-    // Load secrets (embedded at compile time via secrets.toml/rs)
+    // Secrets laden (zur Compile-Zeit eingebettet)
     let secrets = Secrets::load()?;
 
-    info!("Loading configuration...");
+    info!("Lade Konfiguration...");
     info!("WiFi SSID: {}", secrets.wifi.ssid);
 
     let peripherals = Peripherals::take()?;
 
-    // === WiFi Setup ===
+    // === WiFi Setup mit Secrets ===
     info!("Starting WiFi...");
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
@@ -156,7 +153,7 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
     )?;
 
-    // WiFi configuration from secrets.toml
+    // WiFi-Konfiguration aus secrets.toml
     let wifi_config = Configuration::Client(ClientConfiguration {
         ssid: secrets.wifi.ssid.as_str().try_into().unwrap(),
         password: secrets.wifi.password.as_str().try_into().unwrap(),
@@ -175,92 +172,88 @@ fn main() -> anyhow::Result<()> {
     wifi.connect()?;
     info!("WiFi connected!");
 
-    // Wait until the network interface is up and has an IP
     wifi.wait_netif_up()?;
 
     let ip_info = wifi.wifi().sta_netif().get_ip_info()?;
-    info!("IP Address: {:?}", ip_info.ip);
-
+    info!("IP-Adresse: {:?}", ip_info.ip);
     // ==================== DISPLAY SETUP ====================
     info!("Setting up display...");
 
-    // === SPI Pin Configuration ===
-    // SPI (Serial Peripheral Interface) is used for display communication
-    let sclk = peripherals.pins.gpio18; // SPI Clock (SCL on display)
-    let mosi = peripherals.pins.gpio23; // Master Out Slave In (SDA on display)
-    let cs = peripherals.pins.gpio15; // Chip Select (activates the display)
+    // === SPI Pin-Konfiguration ===
+    // SPI (Serial Peripheral Interface) wird für die Display-Kommunikation genutzt
+    let sclk = peripherals.pins.gpio18; // SPI Clock (SCL auf dem Display)
+    let mosi = peripherals.pins.gpio23; // Master Out Slave In (SDA auf dem Display)
+    let cs = peripherals.pins.gpio15; // Chip Select (aktiviert das Display)
 
-    // === Control Pins ===
-    let dc = peripherals.pins.gpio21; // Data/Command Pin (distinguishes data from commands)
+    // === Steuerungs-Pins ===
+    let dc = peripherals.pins.gpio21; // Data/Command Pin (unterscheidet Daten von Befehlen)
     let mut rst = PinDriver::output(peripherals.pins.gpio22)?; // Reset Pin
 
     info!("Pins configured");
 
-    // === Hardware Reset of the Display ===
-    // Reset Sequence: LOW -> Wait -> HIGH -> Wait
-    rst.set_low()?; // Activate reset (Display OFF)
-    FreeRtos::delay_ms(50); // Wait 50ms
-    rst.set_high()?; // Deactivate reset (Display starts)
-    FreeRtos::delay_ms(200); // Wait 200ms for display to be ready
+    // === Hardware-Reset des Displays ===
+    // Reset-Sequenz: LOW -> Warten -> HIGH -> Warten
+    rst.set_low()?; // Reset aktivieren (Display aus)
+    FreeRtos::delay_ms(50); // 50ms warten
+    rst.set_high()?; // Reset deaktivieren (Display startet)
+    FreeRtos::delay_ms(200); // 200ms warten bis Display bereit ist
 
-    // === SPI Bus Configuration ===
-    // 26 MHz clock frequency for fast data transmission
-    let spi_config = Config::new().baudrate(26.MHz().into());
+    // === SPI-Bus Konfiguration ===
+    let spi_config = Config::new().baudrate(26.MHz().into()); // 26 MHz Taktfrequenz für schnelle Datenübertragung
 
-    // Create the SPI driver with configured pins
-    // None::<AnyIOPin> means: no MISO (Master In Slave Out), as the display does not send data back
+    // Erstellt den SPI-Treiber mit den konfigurierten Pins
+    // None::<AnyIOPin> bedeutet: kein MISO (Master In Slave Out), da das Display keine Daten zurücksendet
     let spi_driver = SpiDriver::new(
-        peripherals.spi2, // Use SPI2 hardware unit
+        peripherals.spi2, // Nutzt SPI2 Hardware-Einheit
         sclk,             // Clock Pin
-        mosi,             // Data Output
-        None::<AnyIOPin>, // No Data Input (Display is write-only)
+        mosi,             // Daten-Ausgang
+        None::<AnyIOPin>, // Kein Daten-Eingang (Display sendet nicht zurück)
         &SpiDriverConfig::new(),
     )?;
 
-    // Create an SPI Device with Chip-Select Pin
+    // Erstellt ein SPI-Device mit Chip-Select Pin
     let spi_device = SpiDeviceDriver::new(spi_driver, Some(cs), &spi_config)?;
 
-    // === Create Wrapper Instances ===
-    // These wrappers adapt ESP-IDF's API to match embedded-hal 1.0 expectations
+    // === Wrapper-Instanzen erstellen ===
+    // Diese Wrapper passen ESP-IDF's API an embedded-hal 1.0 an
     let spi_wrapper = SpiWrapper { spi: spi_device };
     let dc_wrapper = DcPinWrapper {
-        pin: PinDriver::output(dc.downgrade_output())?, // Configure DC pin as output
+        pin: PinDriver::output(dc.downgrade_output())?, // DC-Pin als Ausgabe konfigurieren
     };
 
-    // === Display Buffer ===
-    // Static buffer for display operations.
-    // Size calculation: 240 pixels width * 10 lines * 2 bytes/pixel (RGB565) = 4800 Bytes.
-    // Defined as `static mut` to prevent it from being allocated on the stack,
-    // which avoids stack overflow on embedded devices with limited stack memory.
+    // === Display-Buffer ===
+    // Statischer Buffer für Display-Operationen
+    // Größe: 240 Pixel breit * 10 Zeilen * 2 Bytes/Pixel (RGB565) = 4800 Bytes
+    // Wird als static mut definiert, damit er nicht auf dem Stack liegt (Stack-Overflow Vermeidung)
     static mut DISPLAY_BUFFER: [u8; 240 * 10 * 2] = [0u8; 240 * 10 * 2];
 
-    // === Create Display Interface ===
-    // `unsafe` block is required because we are accessing `static mut`.
-    // `addr_of_mut!` creates a raw pointer, which is then dereferenced to a reference.
+    // === Display-Interface erstellen ===
+    // unsafe Block nötig, da wir auf static mut zugreifen
+    // addr_of_mut! erzeugt einen Raw Pointer, der dann zu einer Referenz dereferenziert wird
     let di = unsafe {
         mipidsi::interface::SpiInterface::new(
-            spi_wrapper,                        // SPI Communication
+            spi_wrapper,                        // SPI-Kommunikation
             dc_wrapper,                         // Data/Command Pin
-            &mut *addr_of_mut!(DISPLAY_BUFFER), // Buffer for batch operations
+            &mut *addr_of_mut!(DISPLAY_BUFFER), // Buffer für Batch-Operationen
         )
     };
 
-    // === Initialize Display ===
-    let mut display = Builder::new(ST7789, di) // Use ST7789 Controller
-        .display_size(240, 320) // Display Resolution: 240x320 Pixels
-        .display_offset(0, 0) // No offset (starts at 0,0)
-        .color_order(ColorOrder::Rgb) // RGB Color Order
-        .invert_colors(ColorInversion::Inverted) // Invert colors (often needed for IPS TFTs)
-        .init(&mut FreeRtos) // Initialize using FreeRTOS Delay
+    // === Display initialisieren ===
+    let mut display = Builder::new(ST7789, di) // ST7789 Controller
+        .display_size(240, 320) // Display-Auflösung: 240x320 Pixel
+        .display_offset(0, 0) // Kein Offset (beginnt bei 0,0)
+        .color_order(ColorOrder::Rgb) // RGB Farbreihenfolge
+        .invert_colors(ColorInversion::Inverted) // Farben invertiert (häufig bei TFT nötig)
+        .init(&mut FreeRtos) // Initialisierung mit FreeRTOS Delay
         .map_err(|e| anyhow::anyhow!("Display init failed: {:?}", e))?;
 
     info!("Display initialized!");
 
-    // === Initial Display Content ===
-    // Fill the display with black
+    // === Initiale Display-Anzeige ===
+    // Füllt das Display mit Schwarz
     display.clear(Rgb565::BLACK).ok();
 
-    // Draw a green rectangle to indicate "Wi-Fi Connected"
+    // Zeichnet einen grünen Balken als "WiFi verbunden" Indikator
     Rectangle::new(Point::new(0, 0), Size::new(240, 60))
         .into_styled(PrimitiveStyle::with_fill(Rgb565::GREEN))
         .draw(&mut display)
@@ -268,37 +261,37 @@ fn main() -> anyhow::Result<()> {
 
     info!("=== System Ready! ===");
 
-    // ==================== MAIN LOOP ====================
-    // Array of colors to cycle through
+    // ==================== HAUPTSCHLEIFE ====================
+    // Array mit Farben, die durchgewechselt werden
     let colors = [
-        ("RED", Rgb565::RED),
-        ("GREEN", Rgb565::GREEN),
-        ("BLUE", Rgb565::BLUE),
-        ("YELLOW", Rgb565::YELLOW),
+        ("RED", Rgb565::RED),       // Rot
+        ("GREEN", Rgb565::GREEN),   // Grün
+        ("BLUE", Rgb565::BLUE),     // Blau
+        ("YELLOW", Rgb565::YELLOW), // Gelb
     ];
 
-    let mut idx = 0; // Index for the color array
+    let mut idx = 0; // Index für Farb-Array
 
     loop {
-        // === Monitor WiFi Connection ===
-        // If Wi-Fi is disconnected, attempt to reconnect
+        // === WiFi-Verbindung überwachen ===
+        // Falls WiFi getrennt wurde, neu verbinden
         if !wifi.is_connected()? {
             warn!("WiFi disconnected, reconnecting...");
             wifi.connect()?;
         }
 
-        // Get current color from array
+        // Aktuelle Farbe aus dem Array holen
         let (name, color) = colors[idx];
         info!("Displaying: {} - WiFi: Connected", name);
 
-        // === Update Display ===
-        // Fill the entire display with the current color
+        // === Display-Aktualisierung ===
+        // Füllt das gesamte Display mit der aktuellen Farbe
         display.clear(color).ok();
 
-        // Wait for 2 seconds
+        // Warte 2 Sekunden
         FreeRtos::delay_ms(2000);
 
-        // Move to the next color index (with wrap-around)
+        // Zum nächsten Farb-Index wechseln (mit Wrap-Around)
         idx = (idx + 1) % colors.len();
     }
 }

@@ -17,14 +17,18 @@ default = []
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
-esp-idf-svc = { workspace = true, features = ["alloc"] }
-log = { workspace = true }
+esp-idf-svc = { version = "0.51", features = ["alloc"] }
+esp-idf-hal = "0.45"
+esp-idf-sys = { version = "0.36" }
+log = "0.4"
 
 
 # Display dependencies
 embedded-graphics = "0.8"
-embedded-hal = "1.0.0-alpha.10"
+embedded-hal = "1.0.0"
 mipidsi = "0.9"
+display-interface = "0.5"
+display-interface-spi = "0.5"
 anyhow = "1.0.100"
 serde = { version = "1.0.228", features = ["derive"] }
 toml = "0.9.8"

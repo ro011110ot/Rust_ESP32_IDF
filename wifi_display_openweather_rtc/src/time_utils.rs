@@ -89,3 +89,26 @@ pub fn get_timezone_str(year: i32, month: u32, day: u32, hour: u32) -> &'static 
         "CET"
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_dst_calculation() {
+        // 15. März 2024, 10:00 UTC -> CET (vor Umstellung)
+        assert_eq!(is_dst(2024, 3, 15, 10), false);
+
+        // 31. März 2024, 03:00 UTC -> CEST (nach Umstellung)
+        assert_eq!(is_dst(2024, 3, 31, 3), true);
+
+        // 15. Juli 2024, 12:00 UTC -> CEST
+        assert_eq!(is_dst(2024, 7, 15, 12), true);
+
+        // 27. Oktober 2024, 02:00 UTC -> CET (nach Umstellung)
+        assert_eq!(is_dst(2024, 10, 27, 4), false);
+
+        // 15. Dezember 2024, 18:00 UTC -> CET
+        assert_eq!(is_dst(2024, 12, 15, 18), false);
+    }
+}
