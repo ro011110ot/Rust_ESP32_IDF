@@ -5,6 +5,7 @@ members = [
     "wifi_display",
     "wifi_display_openweather",
     "wifi_display_openweather_rtc",
+    "wifi_display_openweather_rtc_mqtt",
 ]
 resolver = "2"
 
