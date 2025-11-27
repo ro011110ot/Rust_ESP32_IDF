@@ -35,3 +35,4 @@ secrets.toml
 /scripts/weather_icons/sun.png
 /scripts/weather_icons/thunder.png
 
+/espflash_ports.toml

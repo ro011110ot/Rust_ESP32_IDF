@@ -10,20 +10,14 @@ use embedded_hal::digital::OutputPin as OutputPinTrait;
 use embedded_hal::spi::SpiDevice;
 use embedded_svc::http::client::Client;
 
-// === HAL Imports (Fixes PinDriver, FreeRtos, Peripherals, SpiDriver, etc.) ===
+// === HAL Imports ===
 use esp_idf_hal::{
-    delay::FreeRtos,                        // Fixes FreeRtos
-    gpio::{AnyIOPin, OutputPin, PinDriver}, // Fixes PinDriver, AnyIOPin
-    peripherals::Peripherals,               // Fixes Peripherals
-    prelude::*,                             // Includes .Hz() and .MHz() traits
-    spi::{
-        config::Config,  // Fixes spi::config::Config
-        SpiDeviceDriver, // Fixes SpiDeviceDriver
-        SpiDriver,       // Fixes SpiDriver
-        SpiDriverConfig, // Fixes SpiDriverConfig
-    },
+    delay::FreeRtos,
+    gpio::{AnyIOPin, OutputPin, PinDriver},
+    peripherals::Peripherals,
+    prelude::*,
+    spi::{config::Config, SpiDeviceDriver, SpiDriver, SpiDriverConfig},
 };
-// =======================================================
 
 use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
 use esp_idf_svc::mqtt::client::{EspMqttClient, MqttClientConfiguration};
@@ -38,6 +32,8 @@ use mipidsi::{
 };
 use profont::PROFONT_24_POINT;
 use serde::{Deserialize, Serialize};
+use std::collections::VecDeque;
+use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 mod secrets;
@@ -46,49 +42,41 @@ mod weather_icons;
 
 use weather_icons::get_weather_icon;
 
+// Shared data structure for movement events
+static MOVEMENT_EVENTS: Mutex<Option<Arc<Mutex<VecDeque<String>>>>> = Mutex::new(None);
+
+// Shared data structure for last fetched weather data
+static LAST_WEATHER_DATA: Mutex<Option<WeatherResponse>> = Mutex::new(None);
+
 // === OPENWEATHERMAP DATA STRUCTURES ===
 
-/// Represents the overall weather response from the OpenWeatherMap API.
 #[derive(Deserialize, Serialize, Debug)]
 struct WeatherResponse {
-    /// A list of weather conditions.
     weather: Vec<Weather>,
-    /// The main weather data (temperature, humidity, etc.).
     main: Main,
-    /// The wind data.
     wind: Wind,
-    /// The name of the city.
     name: String,
 }
 
-/// Represents a single weather condition.
 #[derive(Deserialize, Serialize, Debug)]
 struct Weather {
-    /// A description of the weather condition.
     description: String,
-    /// The icon code for the weather condition.
     icon: String,
 }
 
-/// Represents the main weather data.
 #[derive(Deserialize, Serialize, Debug)]
 struct Main {
-    /// The temperature in Celsius.
     temp: f32,
-    /// The humidity in percent.
     humidity: i32,
 }
 
-/// Represents the wind data.
 #[derive(Deserialize, Serialize, Debug)]
 struct Wind {
-    /// The wind speed in meter/sec.
     speed: f32,
 }
 
 // === WEATHER SYMBOL MAPPING ===
 
-/// Returns a weather symbol for a given icon code.
 fn get_weather_symbol(icon_code: &str) -> &'static str {
     match icon_code {
         "01d" => "☀",
@@ -109,7 +97,6 @@ fn get_weather_symbol(icon_code: &str) -> &'static str {
 
 // === WEATHER FETCH FUNCTION ===
 
-/// Fetches the weather from the OpenWeatherMap API.
 fn get_weather(api_key: &str, city: &str) -> anyhow::Result<WeatherResponse> {
     let url = format!(
         "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric&lang=en",
@@ -141,7 +128,6 @@ fn get_weather(api_key: &str, city: &str) -> anyhow::Result<WeatherResponse> {
 
 // === CUSTOM ERROR TYPE & SPI WRAPPER ===
 
-/// A custom error type for the SPI and digital pin wrappers.
 #[derive(Debug)]
 struct CustomError;
 
@@ -157,7 +143,6 @@ impl embedded_hal::digital::Error for CustomError {
     }
 }
 
-/// A wrapper around the SPI device driver to implement the `embedded-hal` traits.
 struct SpiWrapper<'a> {
     spi: SpiDeviceDriver<'a, SpiDriver<'a>>,
 }
@@ -198,7 +183,6 @@ impl SpiDevice for SpiWrapper<'_> {
 
 // === DC PIN WRAPPER ===
 
-/// A wrapper around the DC pin to implement the `embedded-hal` traits.
 struct DcPinWrapper<'a> {
     pin: PinDriver<'a, esp_idf_hal::gpio::AnyOutputPin, esp_idf_hal::gpio::Output>,
 }
@@ -216,7 +200,6 @@ impl OutputPinTrait for DcPinWrapper<'_> {
     }
 }
 
-//noinspection ALL
 // === MAIN PROGRAM ===
 fn main() -> anyhow::Result<()> {
     esp_idf_svc::sys::link_patches();
@@ -257,48 +240,93 @@ fn main() -> anyhow::Result<()> {
     wifi.wait_netif_up()?;
     info!("WiFi connected!");
 
-    // ==================== MQTT SETUP (Auth & Threading) ====================
+    // ==================== INITIALIZE MOVEMENT_EVENTS FIRST ====================
+    *MOVEMENT_EVENTS.lock().unwrap() = Some(Arc::new(Mutex::new(VecDeque::new())));
+    info!("Movement events queue initialized");
+
+    // ==================== MQTT SETUP ====================
     info!("Starting MQTT client...");
 
-    // 1. Create MQTT configuration
     let mut mqtt_config = MqttClientConfiguration::default();
-
-    // 2. Add credentials to the configuration
     mqtt_config.username = Some(secrets.mqtt.mqtt_user.as_str());
     mqtt_config.password = Some(secrets.mqtt.mqtt_pw.as_str());
     mqtt_config.client_id = Some("esp32-weather-client-rust");
 
-    // 3. Separate client and connection (tuple destructuring)
     let (mut client, mut connection) =
         EspMqttClient::new(secrets.mqtt.broker_url.as_str(), &mqtt_config)?;
 
-    // 4. The connection must run in its own thread
+    // Clone the Arc before moving into thread
+    let movement_events_arc = MOVEMENT_EVENTS
+        .lock()
+        .unwrap()
+        .as_ref()
+        .expect("MOVEMENT_EVENTS should be initialized")
+        .clone();
+
+    // MQTT thread
     std::thread::Builder::new()
         .stack_size(6000)
         .spawn(move || {
             info!("MQTT Listening Loop started");
+
+            // Wait for first event and subscribe after connection
+            let mut subscribed = false;
+
             while let Ok(event) = connection.next() {
-                // Important: use the module event, not the trait event
                 use esp_idf_svc::mqtt::client::EventPayload;
 
                 match event.payload() {
+                    EventPayload::Connected(_) => {
+                        info!("MQTT Connected!");
+                        subscribed = false; // Reset subscription flag on reconnect
+                    }
+                    EventPayload::BeforeConnect => {
+                        info!("MQTT connecting...");
+                    }
+                    EventPayload::Subscribed(msg_id) => {
+                        info!("MQTT Subscribed! Message ID: {}", msg_id);
+                        subscribed = true;
+                    }
                     EventPayload::Received {
                         id, topic, data, ..
                     } => {
+                        if !subscribed {
+                            continue;
+                        }
+
                         info!(
                             "MQTT Message received on topic: {} (id: {})",
                             topic.unwrap_or("unknown"),
                             id
                         );
                         if !data.is_empty() {
-                            info!("Data: {:?}", std::str::from_utf8(data));
+                            let received_data = std::str::from_utf8(data)?;
+                            info!("Data: {:?}", received_data);
+
+                            if let Some(t) = topic {
+                                if t == "Bewegung" && received_data == "1" {
+                                    let now = SystemTime::now();
+                                    let since_the_epoch = now.duration_since(UNIX_EPOCH)?;
+                                    let utc_timestamp = since_the_epoch.as_secs();
+
+                                    let (_year, _month, _day, hour, minute, second) =
+                                        time_utils::utc_to_berlin(utc_timestamp as i64);
+                                    let formatted_time =
+                                        time_utils::format_time(hour, minute, second);
+
+                                    let mut events = movement_events_arc.lock().unwrap();
+                                    events.push_front(formatted_time);
+                                    if events.len() > 6 {
+                                        events.pop_back();
+                                    }
+                                    info!("Movement detected: {}", formatted_time);
+                                }
+                            }
                         }
-                    }
-                    EventPayload::Connected(_) => {
-                        info!("MQTT Connected!");
                     }
                     EventPayload::Disconnected => {
                         info!("MQTT Disconnected!");
+                        subscribed = false;
                     }
                     EventPayload::Error(e) => {
                         error!("MQTT Event Error: {:?}", e);
@@ -307,10 +335,21 @@ fn main() -> anyhow::Result<()> {
                 }
             }
             info!("MQTT Connection closed");
+            Ok::<(), anyhow::Error>(())
         })?;
 
-    info!("MQTT client started.");
-    // ===========================================================================
+    info!("MQTT thread started.");
+
+    // Wait for MQTT connection before subscribing
+    info!("Waiting for MQTT connection...");
+    FreeRtos::delay_ms(2000);
+
+    // Subscribe to movement topic
+    let movement_topic = "Bewegung";
+    match client.subscribe(movement_topic, embedded_svc::mqtt::client::QoS::AtLeastOnce) {
+        Ok(_) => info!("Subscribe request sent for topic: {}", movement_topic),
+        Err(e) => error!("Failed to subscribe: {:?}", e),
+    }
 
     // ==================== SNTP SETUP ====================
     let sntp = EspSntp::new_default()?;
@@ -320,7 +359,7 @@ fn main() -> anyhow::Result<()> {
     }
     info!("Time synchronized!");
 
-    // ==================== DISPLAY SETUP (Standard Pins) ====================
+    // ==================== DISPLAY SETUP ====================
     let sclk = peripherals.pins.gpio18;
     let mosi = peripherals.pins.gpio23;
     let cs = peripherals.pins.gpio15;
@@ -383,6 +422,9 @@ fn main() -> anyhow::Result<()> {
     let weather_interval = 15 * 60; // 15 minutes
 
     loop {
+        // Clear the display at the beginning of each loop iteration
+        display.clear(Rgb565::BLACK).ok();
+
         // Get the current time
         let now = SystemTime::now();
         let since_the_epoch = now.duration_since(UNIX_EPOCH)?;
@@ -398,95 +440,21 @@ fn main() -> anyhow::Result<()> {
 
             // Reconnect to WiFi if necessary
             if !wifi.is_connected()? {
-                wifi.connect().ok();
-                wifi.wait_netif_up().ok();
+                info!("WiFi disconnected, reconnecting...");
+                wifi.connect()?;
+                wifi.wait_netif_up()?;
             }
 
             // Get weather data
             match get_weather(&secrets.openweather.api_key, &secrets.openweather.city) {
                 Ok(weather) => {
-                    // --- DISPLAY LOGIC ---
-                    display.clear(Rgb565::BLACK).ok();
-
-                    let icon_code = &weather.weather[0].icon;
-
-                    // Set the icon color based on the weather condition
-                    let icon_color = match &icon_code[..2] {
-                        "01" | "02" | "11" => Rgb565::YELLOW,
-                        "09" | "10" => Rgb565::BLUE,
-                        "13" => Rgb565::WHITE,
-                        "03" | "04" | "50" => Rgb565::CSS_GRAY,
-                        _ => Rgb565::WHITE,
-                    };
-
-                    // Display city name
-                    Text::new(&weather.name, Point::new(10, 60), text_style)
-                        .draw(&mut display)
-                        .ok();
-
-                    // Display temperature
-                    let temp_str = format!("{:.1}°C", weather.main.temp);
-                    Text::new(&temp_str, Point::new(10, 90), text_style)
-                        .draw(&mut display)
-                        .ok();
-
-                    // Display weather description
-                    Text::new(
-                        &weather.weather[0].description,
-                        Point::new(10, 120),
-                        text_style,
-                    )
-                    .draw(&mut display)
-                    .ok();
-
-                    // Display wind speed
-                    let wind_str = format!("W: {:.1}m/s", weather.wind.speed);
-                    Text::new(&wind_str, Point::new(10, 150), text_style)
-                        .draw(&mut display)
-                        .ok();
-
-                    // Display humidity
-                    let hum_str = format!("H: {}%", weather.main.humidity);
-                    Text::new(&hum_str, Point::new(10, 180), text_style)
-                        .draw(&mut display)
-                        .ok();
-
-                    // Display weather icon
-                    if let Some(icon_data) = get_weather_icon(&weather.weather[0].icon) {
-                        let icon_width: usize = 40;
-                        let icon_height: usize = 40;
-
-                        let mut pixels = Vec::with_capacity(icon_width * icon_height);
-
-                        for y in 0..icon_height {
-                            for x in 0..icon_width {
-                                let byte_index = y * (icon_width / 8) + (x / 8);
-                                let bit_index = 7 - (x % 8);
-
-                                if byte_index < icon_data.len() {
-                                    if (icon_data[byte_index] >> bit_index) & 1 == 1 {
-                                        pixels.push(Pixel(
-                                            Point::new(160 + x as i32, 70 + y as i32),
-                                            icon_color,
-                                        ));
-                                    }
-                                }
-                            }
-                        }
-                        display.draw_iter(pixels.iter().cloned()).ok();
-                    } else {
-                        // Fallback to weather symbol if icon is not available
-                        let symbol = get_weather_symbol(&weather.weather[0].icon);
-                        Text::new(symbol, Point::new(160, 70), symbol_style)
-                            .draw(&mut display)
-                            .ok();
-                    }
+                    // Store the fetched weather data
+                    *LAST_WEATHER_DATA.lock().unwrap() = Some(weather);
 
                     // --- MQTT PUBLISH LOGIC ---
-                    match serde_json::to_string(&weather) {
+                    match serde_json::to_string(&LAST_WEATHER_DATA.lock().unwrap().as_ref().unwrap()) {
                         Ok(payload) => {
                             let topic = format!("weather/{}", secrets.openweather.city);
-                            // `client` is the EspMqttClient
                             match client.publish(
                                 topic.as_str(),
                                 embedded_svc::mqtt::client::QoS::AtLeastOnce,
@@ -499,13 +467,90 @@ fn main() -> anyhow::Result<()> {
                         }
                         Err(e) => error!("JSON Serialization Error: {:?}", e),
                     }
-                    // -------------------------
 
                     last_weather_fetch = utc_timestamp;
                 }
                 Err(e) => {
                     error!("Weather Error: {}", e);
                 }
+            }
+        }
+
+        // --- DISPLAY LOGIC (Weather, Time, Movement) ---
+        // Always draw weather data if available
+        if let Some(weather) = LAST_WEATHER_DATA.lock().unwrap().as_ref() {
+            let icon_code = &weather.weather[0].icon;
+
+            // Set the icon color based on the weather condition
+            let icon_color = match &icon_code[..2] {
+                "01" | "02" | "11" => Rgb565::YELLOW,
+                "09" | "10" => Rgb565::BLUE,
+                "13" => Rgb565::WHITE,
+                "03" | "04" | "50" => Rgb565::CSS_GRAY,
+                _ => Rgb565::WHITE,
+            };
+
+            // Display city name
+            Text::new(&weather.name, Point::new(10, 60), text_style)
+                .draw(&mut display)
+                .ok();
+
+            // Display temperature
+            let temp_str = format!("{:.1}°C", weather.main.temp);
+            Text::new(&temp_str, Point::new(10, 90), text_style)
+                .draw(&mut display)
+                .ok();
+
+            // Display weather description
+            Text::new(
+                &weather.weather[0].description,
+                Point::new(10, 120),
+                text_style,
+            )
+            .draw(&mut display)
+            .ok();
+
+            // Display wind speed
+            let wind_str = format!("W: {:.1}m/s", weather.wind.speed);
+            Text::new(&wind_str, Point::new(10, 150), text_style)
+                .draw(&mut display)
+                .ok();
+
+            // Display humidity
+            let hum_str = format!("H: {}%", weather.main.humidity);
+            Text::new(&hum_str, Point::new(10, 180), text_style)
+                .draw(&mut display)
+                .ok();
+
+            // Display weather icon
+            if let Some(icon_data) = get_weather_icon(&weather.weather[0].icon) {
+                let icon_width: usize = 40;
+                let icon_height: usize = 40;
+
+                let mut pixels = Vec::with_capacity(icon_width * icon_height);
+
+                for y in 0..icon_height {
+                    for x in 0..icon_width {
+                        let byte_index = y * (icon_width / 8) + (x / 8);
+                        let bit_index = 7 - (x % 8);
+
+                        if byte_index < icon_data.len() {
+                            if (icon_data[byte_index] >> bit_index) & 1 == 1 {
+                                pixels.push(Pixel(
+                                    Point::new(160 + x as i32, 70 + y as i32),
+                                    icon_color,
+                                ));
+                            }
+                        }
+                    }
+                }
+                display.draw_iter(pixels.iter().cloned()).ok();
+            } else {
+                // Fallback to weather symbol if icon is not available
+                let symbol = get_weather_symbol(&weather.weather[0].icon);
+                Text::new(symbol, Point::new(160, 70), symbol_style)
+                    .draw(&mut display)
+                    .ok();
             }
         }
 
@@ -525,6 +570,23 @@ fn main() -> anyhow::Result<()> {
         Text::new(&time_str, Point::new(10, 40), text_style)
             .draw(&mut display)
             .ok();
+
+        // Display movement events
+        let movement_events_arc = MOVEMENT_EVENTS.lock().unwrap();
+        if let Some(events_arc) = movement_events_arc.as_ref() {
+            let events = events_arc.lock().unwrap();
+            let mut y_offset = 220; // Start y_offset at 220 for the first event
+
+            for (i, event) in events.iter().enumerate() {
+                let x_pos = if i % 2 == 0 { 10 } else { 120 };
+                Text::new(event, Point::new(x_pos, y_offset), text_style)
+                    .draw(&mut display)
+                    .ok();
+                if i % 2 != 0 {
+                    y_offset += 20; // Move to next line after every two events
+                }
+            }
+        }
 
         // Wait for 1 second
         FreeRtos::delay_ms(1000);
