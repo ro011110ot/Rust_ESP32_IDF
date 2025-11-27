@@ -208,14 +208,14 @@ fn get_weather_icon_color(icon_code: &str) -> Rgb565 {
 // WIFI SETUP
 // ===============================================================================
 
-/// Initialize and connect to WiFi
+/// Initialize and connect to Wi-Fi
 ///
 /// # Arguments
 /// * `peripherals` - ESP32 peripherals
-/// * `secrets` - Configuration containing WiFi credentials
+/// * `secrets` - Configuration containing Wi-Fi credentials
 ///
 /// # Returns
-/// * `Ok(BlockingWifi)` - Connected WiFi instance
+/// * `Ok(BlockingWifi)` - Connected Wi-Fi instance
 fn setup_wifi(
     modem: impl esp_idf_hal::peripheral::Peripheral<P = esp_idf_hal::modem::Modem> + 'static,
     secrets: &Secrets,
@@ -690,7 +690,7 @@ fn main() -> anyhow::Result<()> {
         if utc_timestamp >= last_weather_fetch + weather_interval || last_weather_fetch == 0 {
             info!("Fetching weather update...");
 
-            // Ensure WiFi is connected
+            // Ensure Wi-Fi is connected
             if !wifi.is_connected()? {
                 info!("WiFi disconnected, reconnecting...");
                 wifi.connect()?;

@@ -3,7 +3,7 @@ use chrono::{Datelike, TimeZone, Timelike, Utc};
 //use log::*;
 
 /// Calculates whether a given time is in Daylight Saving Time (CEST).
-/// Summer time: Last Sunday in March 2:00 UTC to last Sunday in October 3:00 UTC
+/// Summer: Last Sunday on March 2:00 UTC to last Sunday on October 3:00 UTC
 pub fn is_dst(year: i32, month: u32, day: u32, hour: u32) -> bool {
     // Last Sunday in March (start of CEST)
     let march_last_sunday_day = 31 - ((5 * year / 4 + 4) % 7);
