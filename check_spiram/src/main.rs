@@ -1,3 +1,5 @@
+//! This file is a simple application that checks for the available SPIRAM on the ESP32.
+//! It prints the total size of the internal DRAM and the external SPIRAM.
 use esp_idf_hal::peripherals::Peripherals;
 use esp_idf_svc::log::EspLogger;
 use esp_idf_sys::{

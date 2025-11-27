@@ -38,32 +38,46 @@ mod weather_icons;
 use weather_icons::get_weather_icon;
 
 // === OPENWEATHERMAP DATA STRUCTURES ===
+/// Represents the overall weather response from the OpenWeatherMap API.
 #[derive(Deserialize, Debug)]
 struct WeatherResponse {
+    /// A list of weather conditions.
     weather: Vec<Weather>,
+    /// The main weather data (temperature, humidity, etc.).
     main: Main,
+    /// The wind data.
     wind: Wind,
+    /// The name of the city.
     name: String,
 }
 
+/// Represents a single weather condition.
 #[derive(Deserialize, Debug)]
 struct Weather {
+    /// A description of the weather condition.
     description: String,
+    /// The icon code for the weather condition.
     icon: String,
 }
 
+/// Represents the main weather data.
 #[derive(Deserialize, Debug)]
 struct Main {
+    /// The temperature in Celsius.
     temp: f32,
+    /// The humidity in percent.
     humidity: i32,
 }
 
+/// Represents the wind data.
 #[derive(Deserialize, Debug)]
 struct Wind {
+    /// The wind speed in meter/sec.
     speed: f32,
 }
 
 // === WEATHER SYMBOL MAPPING ===
+/// Returns a weather symbol for a given icon code.
 fn get_weather_symbol(icon_code: &str) -> &'static str {
     match icon_code {
         "01d" => "☀",
@@ -83,9 +97,10 @@ fn get_weather_symbol(icon_code: &str) -> &'static str {
 }
 
 // === WEATHER FETCH FUNCTION ===
+/// Fetches the weather from the OpenWeatherMap API.
 fn get_weather(api_key: &str, city: &str) -> anyhow::Result<WeatherResponse> {
     let url = format!(
-        "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric&lang=de",
+        "https://api.openweathermap.org/data/2.5/weather?q={}&appid={}&units=metric&lang=en",
         city, api_key
     );
 
@@ -113,6 +128,7 @@ fn get_weather(api_key: &str, city: &str) -> anyhow::Result<WeatherResponse> {
 }
 
 // === CUSTOM ERROR TYPE ===
+/// A custom error type for the SPI and digital pin wrappers.
 #[derive(Debug)]
 struct CustomError;
 
@@ -129,6 +145,7 @@ impl embedded_hal::digital::Error for CustomError {
 }
 
 // === SPI WRAPPER ===
+/// A wrapper around the SPI device driver to implement the `embedded-hal` traits.
 struct SpiWrapper<'a> {
     spi: SpiDeviceDriver<'a, SpiDriver<'a>>,
 }
@@ -168,6 +185,7 @@ impl SpiDevice for SpiWrapper<'_> {
 }
 
 // === DC PIN WRAPPER ===
+/// A wrapper around the DC pin to implement the `embedded-hal` traits.
 struct DcPinWrapper<'a> {
     pin: PinDriver<'a, esp_idf_svc::hal::gpio::AnyOutputPin, esp_idf_svc::hal::gpio::Output>,
 }
@@ -193,7 +211,9 @@ fn main() -> anyhow::Result<()> {
 
     info!("=== Starting WiFi + OpenWeather + Clock ===");
 
+    // Load secrets from secrets.toml
     let secrets = Secrets::load()?;
+    // Take peripherals
     let peripherals = Peripherals::take()?;
 
     // === WiFi Setup ===
@@ -205,6 +225,7 @@ fn main() -> anyhow::Result<()> {
         sys_loop,
     )?;
 
+    // Configure WiFi
     let wifi_config = Configuration::Client(ClientConfiguration {
         ssid: secrets.wifi.ssid.as_str().try_into().unwrap(),
         password: secrets.wifi.password.as_str().try_into().unwrap(),
@@ -216,18 +237,20 @@ fn main() -> anyhow::Result<()> {
         ..Default::default()
     });
     wifi.set_configuration(&wifi_config)?;
+    // Start WiFi and connect
     wifi.start()?;
     wifi.connect()?;
+    // Wait for connection
     wifi.wait_netif_up()?;
     info!("WiFi connected!");
 
     // ==================== SNTP SETUP ====================
     let sntp = EspSntp::new_default()?;
-    info!("Warte auf SNTP Zeit-Synchronisierung...");
+    info!("Waiting for SNTP time synchronization...");
     while sntp.get_sync_status() != SyncStatus::Completed {
         FreeRtos::delay_ms(100);
     }
-    info!("Zeit synchronisiert!");
+    info!("Time synchronized!");
 
     // ==================== DISPLAY SETUP ====================
     let sclk = peripherals.pins.gpio18;
@@ -236,12 +259,14 @@ fn main() -> anyhow::Result<()> {
     let dc = peripherals.pins.gpio21;
     let mut rst = PinDriver::output(peripherals.pins.gpio22)?;
 
+    // Reset the display
     rst.set_low()?;
     FreeRtos::delay_ms(50);
     rst.set_high()?;
     FreeRtos::delay_ms(200);
 
-    let spi_config = Config::new().baudrate(26.MHz().into()); // MHz sollte jetzt funktionieren
+    // Configure SPI
+    let spi_config = Config::new().baudrate(26.MHz().into());
     let spi_driver = SpiDriver::new(
         peripherals.spi2,
         sclk,
@@ -255,6 +280,7 @@ fn main() -> anyhow::Result<()> {
         pin: PinDriver::output(dc.downgrade_output())?,
     };
 
+    // Initialize the display
     static mut DISPLAY_BUFFER: [u8; 240 * 10 * 2] = [0u8; 240 * 10 * 2];
     let di = unsafe {
         mipidsi::interface::SpiInterface::new(
@@ -272,6 +298,7 @@ fn main() -> anyhow::Result<()> {
         .init(&mut FreeRtos)
         .map_err(|e| anyhow::anyhow!("Display init failed: {:?}", e))?;
 
+    // Clear the display
     display.clear(Rgb565::BLACK).ok();
 
     // ==================== STYLES ====================
@@ -285,30 +312,37 @@ fn main() -> anyhow::Result<()> {
 
     // ==================== MAIN LOOP ====================
     let mut last_weather_fetch = 0u64;
-    let weather_interval = 15 * 60;
+    let weather_interval = 15 * 60; // 15 minutes
 
     loop {
+        // Get the current time
         let now = SystemTime::now();
         let since_the_epoch = now.duration_since(UNIX_EPOCH)?;
         let utc_timestamp = since_the_epoch.as_secs();
 
+        // Convert UTC time to Berlin time
         let (year, month, day, hour, minute, second) =
             time_utils::utc_to_berlin(utc_timestamp as i64);
 
+        // Fetch weather data every 15 minutes
         if utc_timestamp >= last_weather_fetch + weather_interval || last_weather_fetch == 0 {
             info!("Updating Weather...");
 
+            // Reconnect to WiFi if necessary
             if !wifi.is_connected()? {
                 wifi.connect().ok();
                 wifi.wait_netif_up().ok();
             }
 
+            // Get weather data
             match get_weather(&secrets.openweather.api_key, &secrets.openweather.city) {
                 Ok(weather) => {
+                    // --- DISPLAY LOGIC ---
                     display.clear(Rgb565::BLACK).ok();
 
                     let icon_code = &weather.weather[0].icon;
 
+                    // Set the icon color based on the weather condition
                     let icon_color = match &icon_code[..2] {
                         "01" | "02" | "11" => Rgb565::YELLOW,
                         "09" | "10" => Rgb565::BLUE,
@@ -317,15 +351,18 @@ fn main() -> anyhow::Result<()> {
                         _ => Rgb565::WHITE,
                     };
 
+                    // Display city name
                     Text::new(&weather.name, Point::new(10, 60), text_style)
                         .draw(&mut display)
                         .ok();
 
+                    // Display temperature
                     let temp_str = format!("{:.1}°C", weather.main.temp);
                     Text::new(&temp_str, Point::new(10, 90), text_style)
                         .draw(&mut display)
                         .ok();
 
+                    // Display weather description
                     Text::new(
                         &weather.weather[0].description,
                         Point::new(10, 120),
@@ -334,18 +371,20 @@ fn main() -> anyhow::Result<()> {
                     .draw(&mut display)
                     .ok();
 
+                    // Display wind speed
                     let wind_str = format!("W: {:.1}m/s", weather.wind.speed);
                     Text::new(&wind_str, Point::new(10, 150), text_style)
                         .draw(&mut display)
                         .ok();
 
+                    // Display humidity
                     let hum_str = format!("H: {}%", weather.main.humidity);
                     Text::new(&hum_str, Point::new(10, 180), text_style)
                         .draw(&mut display)
                         .ok();
 
+                    // Display weather icon
                     if let Some(icon_data) = get_weather_icon(&weather.weather[0].icon) {
-                        // Fix: Explizite Typen definieren, um Casts zu vermeiden
                         let icon_width: usize = 40;
                         let icon_height: usize = 40;
 
@@ -368,6 +407,7 @@ fn main() -> anyhow::Result<()> {
                         }
                         display.draw_iter(pixels.iter().cloned()).ok();
                     } else {
+                        // Fallback to weather symbol if icon is not available
                         let symbol = get_weather_symbol(&weather.weather[0].icon);
                         Text::new(symbol, Point::new(160, 70), symbol_style)
                             .draw(&mut display)
@@ -382,6 +422,7 @@ fn main() -> anyhow::Result<()> {
             }
         }
 
+        // Display time and date
         let time_str = time_utils::format_time(hour, minute, second);
         let date_str = time_utils::format_date(day, month, year);
         let tz_str = time_utils::get_timezone_str(year, month, day, hour);
@@ -398,6 +439,7 @@ fn main() -> anyhow::Result<()> {
             .draw(&mut display)
             .ok();
 
+        // Wait for 1 second
         FreeRtos::delay_ms(1000);
     }
 }

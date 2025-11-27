@@ -1,6 +1,7 @@
 # Weather Station Display (OpenWeatherMap)
 
 This project extends the Wi-Fi and display example to create a functional weather station that fetches and displays real-time data from the OpenWeatherMap API.
+This project is a step before the `wifi_display_openweather_rtc` project, which adds a real-time clock.
 
 ## Description
 

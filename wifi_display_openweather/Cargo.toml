@@ -1,41 +1,66 @@
 [package]
+# The name of the package.
 name = "wifi_display_openweather"
+# The version of the package.
 version = "0.1.0"
+# The authors of the package.
 authors = ["ro011110ot <ro011110ot@gmail.com>"]
+# The edition of the package.
 edition = "2021"
+# The resolver of the package.
 resolver = "2"
+# The rust version of the package.
 rust-version = "1.77"
 
 [[bin]]
+# The name of the binary.
 name = "wifi_display_openweather"
-harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+# Do not use the built-in cargo test harness -> resolve rust-analyzer errors.
+harness = false
 
 
 [features]
 default = []
 
+# Enable experimental features of esp-idf-svc.
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
+# ESP-IDF services.
 esp-idf-svc = { version = "0.51", features = ["alloc"] }
+# ESP-IDF hardware abstraction layer.
 esp-idf-hal = "0.45"
+# ESP-IDF system bindings.
 esp-idf-sys = { version = "0.36" }
+# Logging facade.
 log = "0.4"
+# Embedded services traits.
 embedded-svc = "0.28"
 
 
 
 # Display dependencies
+# 2D graphics library.
 embedded-graphics = "0.8"
+# Hardware abstraction layer.
 embedded-hal = "1.0.0"
+# Display driver for ST7789.
 mipidsi = "0.9"
+# Display interface traits.
 display-interface = "0.5"
+# SPI display interface.
 display-interface-spi = "0.5"
+# Error handling.
 anyhow = "1.0.100"
+# Serialization and deserialization framework.
 serde = { version = "1.0.228", features = ["derive"] }
+# JSON serialization and deserialization.
 serde_json = "1.0.128"
+# TOML serialization and deserialization.
 toml = "0.9.8"
+# Framebuffer for embedded-graphics.
 embedded-graphics-framebuf = "0.5.0"
+# Font for embedded-graphics.
 profont = "0.7.0"
 
 # --- Optional Embassy Integration ---
@@ -56,4 +81,5 @@ profont = "0.7.0"
 # critical-section = { version = "1.1", features = ["std"], default-features = false }
 
 [build-dependencies]
+# Build script for ESP-IDF.
 embuild = "0.33"

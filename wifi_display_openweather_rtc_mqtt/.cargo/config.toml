@@ -1,16 +1,22 @@
 [build]
+# The default target to build for.
 target = "xtensa-esp32-espidf"
 
 [target.xtensa-esp32-espidf]
+# The linker to use for the target.
 linker = "ldproxy"
+# The runner to use for the target. This will flash and monitor the device.
 runner = "espflash flash --monitor --baud 115200"
+# Custom rustflags for the target.
 rustflags = ["--cfg", "espidf_time64"]
 
 [unstable]
+# Build the standard library for the target.
 build-std = ["std", "panic_abort"]
 
 [env]
+# The MCU to use.
 MCU = "esp32"
+# The version of the ESP-IDF to use.
 # Note: this variable is not used by the pio builder (`cargo build --features pio`)
 ESP_IDF_VERSION = "v5.3.3"
-

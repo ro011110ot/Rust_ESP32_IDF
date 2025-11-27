@@ -1,2 +1,4 @@
+# This file specifies the Rust toolchain to use for this project.
+# The "esp" channel is a custom toolchain for ESP32 development.
 [toolchain]
 channel = "esp"

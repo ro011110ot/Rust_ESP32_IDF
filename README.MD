@@ -6,9 +6,10 @@ This repository contains a collection of Rust projects for the ESP32, built usin
 
 *   `check_spiram`: A simple utility to check if SPIRAM (PSRAM) is available and functional.
 *   `wifi`: A basic example of connecting the ESP32 to a Wi-Fi network.
-*   `wifi_display`: A project that connects to Wi-Fi and likely displays information on an attached screen.
-*   `wifi_display_openweather`: Fetches weather data from the OpenWeatherMap API and displays it.
-*   `wifi_display_openweather_rtc`: An extension of the weather display project that incorporates a Real-Time Clock (RTC) for timekeeping.
+*   `wifi_display`: A project that connects to Wi-Fi and displays information on an attached ST7789 TFT screen.
+*   `wifi_display_openweather`: Fetches weather data from the OpenWeatherMap API and displays it on the screen.
+*   `wifi_display_openweather_rtc`: An extension of the weather display project that incorporates a Real-Time Clock (RTC) for timekeeping, synchronized via NTP.
+*   `wifi_display_openweather_rtc_mqtt`: The most advanced project, which adds MQTT publishing of weather data to the RTC weather station.
 
 ## How to Compile and Run
 
@@ -30,7 +31,7 @@ Some projects require credentials for services like Wi-Fi or weather APIs.
     ```bash
     cp secrets.toml.example secrets.toml
     ```
-2.  Edit `secrets.toml` and fill in your details, such as Wi-Fi SSID, password, and your OpenWeatherMap API key.
+2.  Edit `secrets.toml` and fill in your details, such as Wi-Fi SSID, password, your OpenWeatherMap API key, and MQTT broker details.
 
 ### Building and Flashing
 
@@ -50,4 +51,3 @@ To compile a specific project, navigate to its directory and use `cargo`.
     cargo espflash flash --monitor
     ```
     *(This command flashes the device and then opens a serial monitor to display logs.)*
-

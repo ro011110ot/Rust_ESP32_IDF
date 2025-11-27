@@ -10,28 +10,17 @@ Once connected, it waits for the network interface to be up, retrieves the assig
 
 ## Configuration
 
-This example uses hardcoded Wi-Fi credentials directly in the `src/main.rs` file. To connect to your own network, you must modify the following lines:
+This example uses a `secrets.toml` file to store Wi-Fi credentials.
 
-```rust
-// src/main.rs
-
-// ...
-    let wifi_config = Configuration::Client(ClientConfiguration {
-        ssid: "Your-SSID".try_into().unwrap(),
-        password: "Your-Password".try_into().unwrap(),
-        auth_method: AuthMethod::WPA2Personal, // Or another method like AuthMethod::None for open networks
-        ..Default::default()
-    });
-// ...
-```
-
--   Replace `"Your-SSID"` with your network's name.
--   Replace `"Your-Password"` with your network's password.
--   Change `auth_method` if your network uses a different security protocol (e.g., `AuthMethod::None` for an open network or `AuthMethod::WPAWPA2Personal` for mixed mode).
+1.  Copy the example secrets file:
+    ```bash
+    cp ../secrets.toml.example ../secrets.toml
+    ```
+2.  Edit `../secrets.toml` and fill in your details, such as Wi-Fi SSID and password.
 
 ## How to Run
 
-1.  Modify the Wi-Fi credentials in `src/main.rs` as described above.
+1.  Modify the Wi-Fi credentials in `../secrets.toml` as described above.
 
 2.  Navigate to this project's directory:
     ```bash
@@ -48,10 +37,10 @@ This example uses hardcoded Wi-Fi credentials directly in the `src/main.rs` file
 After the device boots and connects, you will see log messages similar to this:
 ```
 ...
-I (XXXX) wifi: WiFi gestartet
-I (XXXX) wifi: WiFi verbunden!
-I (XXXX) wifi: IP-Adresse: 192.168.1.123
-I (XXXX) wifi: Läuft...
+I (XXXX) wifi: WiFi started
+I (XXXX) wifi: WiFi connected!
+I (XXXX) wifi: IP address: 192.168.1.123
+I (XXXX) wifi: Running...
 ...
 ```
 The IP address will correspond to the one assigned by your router.

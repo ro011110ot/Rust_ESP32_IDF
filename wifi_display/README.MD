@@ -1,6 +1,7 @@
 # WiFi + Display Example (ST7789)
 
 This project demonstrates how to connect an ESP32 to a Wi-Fi network and display information on an ST7789 TFT screen.
+This project is a step before the `wifi_display_openweather` project, which adds a weather station.
 
 ## Description
 

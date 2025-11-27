@@ -1,4 +1,5 @@
 [workspace]
+# The members of the workspace.
 members = [
     "check_spiram",
     "wifi",
@@ -7,23 +8,62 @@ members = [
     "wifi_display_openweather_rtc",
     "wifi_display_openweather_rtc_mqtt",
 ]
+# The resolver to use for the workspace.
 resolver = "2"
 
-[workspace.dependencies.esp-hal]
-version = "1.0.0"
-features = [
-    "esp32",
-    "unstable",
-]
+[workspace.dependencies]
+# Dependencies for the workspace.
+# ESP-IDF hardware abstraction layer.
+esp-idf-hal = { version = "0.45" }
+# ESP-IDF services.
+esp-idf-svc = { version = "0.51", features = ["alloc"] }
+# ESP-IDF system bindings.
+esp-idf-sys = { version = "0.36" }
+# Logging facade.
+log = "0.4"
+# Embedded services traits.
+embedded-svc = "0.28"
+# 2D graphics library.
+embedded-graphics = "0.8"
+# Hardware abstraction layer.
+embedded-hal = "1.0.0"
+# Display driver for ST7789.
+mipidsi = "0.9"
+# Display interface traits.
+display-interface = "0.5"
+# SPI display interface.
+display-interface-spi = "0.5"
+# Error handling.
+anyhow = "1.0.100"
+# Serialization and deserialization framework.
+serde = { version = "1.0.228", features = ["derive"] }
+# JSON serialization and deserialization.
+serde_json = "1.0.128"
+# TOML serialization and deserialization.
+toml = "0.9.8"
+# Framebuffer for embedded-graphics.
+embedded-graphics-framebuf = "0.5.0"
+# Font for embedded-graphics.
+profont = "0.7.0"
+# Date and time library.
+chrono = "0.4.42"
 
 [profile.dev]
+# The optimization level for the dev profile.
 opt-level = "z"
+# Link-time optimization.
 lto = "fat"
+# The number of codegen units.
 codegen-units = 1
+# The debug level.
 debug = 2
+# Enable debug assertions.
 debug-assertions = false
+# Enable overflow checks.
 overflow-checks = false
+# Enable incremental compilation.
 incremental = false
 
 [profile.release]
+# The optimization level for the release profile.
 opt-level = "s"

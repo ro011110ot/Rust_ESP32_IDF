@@ -1,23 +1,34 @@
 [package]
+# The name of the package.
 name = "wifi"
+# The version of the package.
 version = "0.1.0"
+# The authors of the package.
 authors = ["ro011110ot <ro011110ot@gmail.com>"]
+# The edition of the package.
 edition = "2021"
+# The resolver of the package.
 resolver = "2"
+# The rust version of the package.
 rust-version = "1.77"
 
 [[bin]]
+# The name of the binary.
 name = "wifi"
-harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+# Do not use the built-in cargo test harness -> resolve rust-analyzer errors.
+harness = false
 
 
 [features]
 default = []
 
+# Enable experimental features of esp-idf-svc.
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
+# Logging facade.
 log = "0.4"
+# ESP-IDF services.
 esp-idf-svc = "0.51"
 
 # --- Optional Embassy Integration ---
@@ -38,4 +49,5 @@ esp-idf-svc = "0.51"
 # critical-section = { version = "1.1", features = ["std"], default-features = false }
 
 [build-dependencies]
+# Build script for ESP-IDF.
 embuild = "0.33"

@@ -1,6 +1,7 @@
 # Weather Station & Clock (OpenWeatherMap + SNTP)
 
-This is the most advanced project in this workspace, combining the weather station with a real-time clock synchronized over the internet.
+This is an advanced project in this workspace, combining the weather station with a real-time clock synchronized over the internet.
+This project is a step before the `wifi_display_openweather_rtc_mqtt` project, which adds MQTT functionality.
 
 ## Description
 

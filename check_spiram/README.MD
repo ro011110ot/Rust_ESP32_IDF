@@ -26,18 +26,18 @@ It then prints the sizes in a human-readable format (KB for internal RAM, MB for
 
 If SPIRAM is present, you will see a message indicating its size:
 ```
---- ESP32 Speicherauswertung ---
-🏭 Interner DRAM (Data/Stack): 295000 Bytes (288.09 KB)
-💾 Externer SPIRAM (PSRAM): 4194276 Bytes (4.00 MB)
+--- ESP32 Memory Analysis ---
+🏭 Internal DRAM (Data/Stack): 295000 Bytes (288.09 KB)
+💾 External SPIRAM (PSRAM): 4194276 Bytes (4.00 MB)
 ---------------------------------
-✅ Ergebnis: **SPIRAM ist VORHANDEN** und verfügbar (Wahrscheinlich ein WROVER-Modul).
+✅ Result: **SPIRAM is PRESENT** and available (Probably a WROVER module).
 ```
 
 If no SPIRAM is found, the output will be:
 ```
---- ESP32 Speicherauswertung ---
-🏭 Interner DRAM (Data/Stack): 295000 Bytes (288.09 KB)
-💾 Externer SPIRAM (PSRAM): 0 Bytes (0.00 MB)
+--- ESP32 Memory Analysis ---
+🏭 Internal DRAM (Data/Stack): 295000 Bytes (288.09 KB)
+💾 External SPIRAM (PSRAM): 0 Bytes (0.00 MB)
 ---------------------------------
-❌ Ergebnis: **Kein SPIRAM (PSRAM) gefunden** (Wahrscheinlich ein WROOM-Modul).
+❌ Result: **No SPIRAM (PSRAM) found** (Probably a WROOM module).
 ```

@@ -1,24 +1,35 @@
 [package]
+# The name of the package.
 name = "check_spiram"
+# The version of the package.
 version = "0.1.0"
+# The authors of the package.
 authors = ["ro011110ot <ro011110ot@gmail.com>"]
+# The edition of the package.
 edition = "2021"
+# The resolver of the package.
 resolver = "2"
+# The rust version of the package.
 rust-version = "1.77"
 
 [[bin]]
+# The name of the binary.
 name = "check_spiram"
-harness = false # do not use the built-in cargo test harness -> resolve rust-analyzer errors
+# Do not use the built-in cargo test harness -> resolve rust-analyzer errors.
+harness = false
 
 [features]
 default = []
 
+# Enable experimental features of esp-idf-svc.
 experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
-#
+# ESP-IDF hardware abstraction layer.
 esp-idf-hal = { version = "0.45.2", features = ["std", "alloc"] }
+# ESP-IDF services.
 esp-idf-svc = { version = "0.51.0", features = ["std", "alloc"] }
+# ESP-IDF system bindings.
 esp-idf-sys = { version = "0.36.1", features = ["binstart"] }
 
 # --- Optional Embassy Integration ---
@@ -39,4 +50,5 @@ esp-idf-sys = { version = "0.36.1", features = ["binstart"] }
 # critical-section = { version = "1.1", features = ["std"], default-features = false }
 
 [build-dependencies]
+# Build script for ESP-IDF.
 embuild = "0.33"
