@@ -32,7 +32,6 @@ use esp_idf_hal::{
 use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
 use esp_idf_svc::mqtt::client::{EspMqttClient, MqttClientConfiguration};
 use esp_idf_svc::sntp::{EspSntp, SyncStatus};
-use esp_idf_svc::tls::X509;
 use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
 
@@ -46,7 +45,6 @@ use mipidsi::{
 use profont::PROFONT_24_POINT;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
-use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -280,30 +278,17 @@ fn setup_mqtt(
 ) -> anyhow::Result<EspMqttClient<'static>> {
     info!("Initializing MQTT client...");
 
-    let mqtt_config = {
-        // Load the MQTT broker's CA certificate
-        const MQTT_CA_PEM: &[u8] = include_bytes!("../../isrg_root_x1.pem");
+    // Use the global CA bundle which includes Let's Encrypt certificates
+    let mqtt_config = MqttClientConfiguration {
+        username: Some(secrets.mqtt.mqtt_user.as_str()),
+        password: Some(secrets.mqtt.mqtt_pw.as_str()),
+        client_id: Some("esp32-weather-client-rust"),
 
-        // Create a CString from the PEM data, and leak it to get a 'static lifetime
-        let ca_cert_cstring = CString::new(MQTT_CA_PEM).expect("CString::new failed");
-        let ca_cert_cstring_leaked: &'static std::ffi::CStr =
-            Box::leak(ca_cert_cstring.into_boxed_c_str());
+        // Use the global CA bundle (includes Let's Encrypt, ISRG Root X1, and most CAs)
+        crt_bundle_attach: Some(esp_idf_sys::esp_crt_bundle_attach),
+        server_certificate: None,
 
-        // Create an X509 certificate from the static CStr
-        let ca_cert = X509::pem(ca_cert_cstring_leaked);
-
-        MqttClientConfiguration {
-            username: Some(secrets.mqtt.mqtt_user.as_str()),
-            password: Some(secrets.mqtt.mqtt_pw.as_str()),
-            client_id: Some("esp32-weather-client-rust"),
-
-            // Use the custom CA certificate
-            server_certificate: Some(ca_cert),
-            // Do not use the global CA bundle when a specific certificate is provided
-            crt_bundle_attach: None,
-
-            ..Default::default()
-        }
+        ..Default::default()
     };
 
     let (mut client, mut connection) =
@@ -388,6 +373,7 @@ fn setup_mqtt(
 
     Ok(client)
 }
+
 /// Handle a movement detection event
 /// Converts current time to Berlin timezone and adds to event queue
 fn handle_movement_event(movement_events: &Arc<Mutex<VecDeque<String>>>) -> anyhow::Result<()> {
