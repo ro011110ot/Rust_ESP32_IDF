@@ -32,8 +32,11 @@ use esp_idf_hal::{
 use esp_idf_svc::http::client::{Configuration as HttpConfiguration, EspHttpConnection};
 use esp_idf_svc::mqtt::client::{EspMqttClient, MqttClientConfiguration};
 use esp_idf_svc::sntp::{EspSntp, SyncStatus};
+use esp_idf_svc::tls::X509;
 use esp_idf_svc::wifi::{AuthMethod, BlockingWifi, ClientConfiguration, Configuration, EspWifi};
 use esp_idf_svc::{eventloop::EspSystemEventLoop, nvs::EspDefaultNvsPartition};
+
+use esp_idf_sys;
 use log::*;
 use mipidsi::{
     models::ST7789,
@@ -43,6 +46,7 @@ use mipidsi::{
 use profont::PROFONT_24_POINT;
 use serde::{Deserialize, Serialize};
 use std::collections::VecDeque;
+use std::ffi::CString;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -276,10 +280,31 @@ fn setup_mqtt(
 ) -> anyhow::Result<EspMqttClient<'static>> {
     info!("Initializing MQTT client...");
 
-    let mut mqtt_config = MqttClientConfiguration::default();
-    mqtt_config.username = Some(secrets.mqtt.mqtt_user.as_str());
-    mqtt_config.password = Some(secrets.mqtt.mqtt_pw.as_str());
-    mqtt_config.client_id = Some("esp32-weather-client-rust");
+    let mqtt_config = {
+        // Load the MQTT broker's CA certificate
+        const MQTT_CA_PEM: &[u8] = include_bytes!("../../isrg_root_x1.pem");
+
+        // Create a CString from the PEM data, and leak it to get a 'static lifetime
+        let ca_cert_cstring = CString::new(MQTT_CA_PEM).expect("CString::new failed");
+        let ca_cert_cstring_leaked: &'static std::ffi::CStr =
+            Box::leak(ca_cert_cstring.into_boxed_c_str());
+
+        // Create an X509 certificate from the static CStr
+        let ca_cert = X509::pem(ca_cert_cstring_leaked);
+
+        MqttClientConfiguration {
+            username: Some(secrets.mqtt.mqtt_user.as_str()),
+            password: Some(secrets.mqtt.mqtt_pw.as_str()),
+            client_id: Some("esp32-weather-client-rust"),
+
+            // Use the custom CA certificate
+            server_certificate: Some(ca_cert),
+            // Do not use the global CA bundle when a specific certificate is provided
+            crt_bundle_attach: None,
+
+            ..Default::default()
+        }
+    };
 
     let (mut client, mut connection) =
         EspMqttClient::new(secrets.mqtt.broker_url.as_str(), &mqtt_config)?;
@@ -325,6 +350,7 @@ fn setup_mqtt(
 
                                 // Handle movement detection message
                                 if let Some(t) = topic {
+                                    // The topic "Bewegung" is German for "movement".
                                     if t == "Bewegung" && received_data == "1" {
                                         if let Err(e) = handle_movement_event(&movement_events) {
                                             error!("Failed to handle movement event: {}", e);
@@ -352,7 +378,8 @@ fn setup_mqtt(
     info!("Waiting for MQTT connection...");
     FreeRtos::delay_ms(2000);
 
-    // Subscribe to movement detection topic
+    // Subscribe to movement detection topic.
+    // Note: The topic "Bewegung" is German for "movement".
     let movement_topic = "Bewegung";
     match client.subscribe(movement_topic, embedded_svc::mqtt::client::QoS::AtLeastOnce) {
         Ok(_) => info!("Subscribed to topic: {}", movement_topic),
@@ -361,7 +388,6 @@ fn setup_mqtt(
 
     Ok(client)
 }
-
 /// Handle a movement detection event
 /// Converts current time to Berlin timezone and adds to event queue
 fn handle_movement_event(movement_events: &Arc<Mutex<VecDeque<String>>>) -> anyhow::Result<()> {
@@ -388,7 +414,8 @@ fn handle_movement_event(movement_events: &Arc<Mutex<VecDeque<String>>>) -> anyh
 // DISPLAY SETUP
 // ===============================================================================
 
-/// Custom error type for SPI and GPIO operations
+/// Custom error type for SPI and GPIO operations.
+/// This is a workaround to adapt the `esp_idf_hal` error types to the `embedded-hal` traits.
 #[derive(Debug)]
 struct CustomError;
 
@@ -404,7 +431,7 @@ impl embedded_hal::digital::Error for CustomError {
     }
 }
 
-/// Wrapper for ESP-IDF SPI driver to work with embedded-hal traits
+/// Wrapper for ESP-IDF SPI driver to make it compatible with `embedded-hal` traits.
 struct SpiWrapper<'a> {
     spi: SpiDeviceDriver<'a, SpiDriver<'a>>,
 }
@@ -443,7 +470,7 @@ impl SpiDevice for SpiWrapper<'_> {
     }
 }
 
-/// Wrapper for Data/Command pin
+/// Wrapper for the Data/Command (DC) pin to make it compatible with `embedded-hal` traits.
 struct DcPinWrapper<'a> {
     pin: PinDriver<'a, esp_idf_hal::gpio::AnyOutputPin, esp_idf_hal::gpio::Output>,
 }
@@ -465,34 +492,28 @@ impl OutputPinTrait for DcPinWrapper<'_> {
 // DISPLAY RENDERING
 // ===============================================================================
 
-/// Render all display content
-/// Only redraws if state has changed to minimize flicker
+/// Renders the entire display content.
+/// It only redraws the screen if the `DisplayState` has changed to prevent flickering.
 fn render_display(
     display: &mut impl DrawTarget<Color = Rgb565>,
     current_state: &DisplayState,
     text_style: &MonoTextStyle<Rgb565>,
     symbol_style: &MonoTextStyle<Rgb565>,
 ) {
-    // Clear entire display
-    if let Err(_) = display.clear(Rgb565::BLACK) {
-        error!("Failed to clear display");
-        return;
-    }
+    // The display is not cleared every frame to reduce flickering.
+    // Instead, specific areas are overwritten.
 
     // === Render Date and Time ===
     let _ = Text::new(&current_state.date_str, Point::new(10, 20), *text_style).draw(display);
-
     let _ = Text::new(&current_state.time_str, Point::new(10, 40), *text_style).draw(display);
 
     // === Render Weather Data ===
     if !current_state.city_name.is_empty() {
         // City name
         let _ = Text::new(&current_state.city_name, Point::new(10, 60), *text_style).draw(display);
-
         // Temperature
         let _ =
             Text::new(&current_state.weather_temp, Point::new(10, 90), *text_style).draw(display);
-
         // Description
         let _ = Text::new(
             &current_state.weather_desc,
@@ -500,19 +521,28 @@ fn render_display(
             *text_style,
         )
         .draw(display);
-
         // Wind speed
         let _ = Text::new(&current_state.wind_str, Point::new(10, 150), *text_style).draw(display);
-
         // Humidity
         let _ = Text::new(&current_state.hum_str, Point::new(10, 180), *text_style).draw(display);
-
         // Weather icon
         render_weather_icon(display, &current_state.weather_icon, symbol_style);
-    }
 
-    // === Render Movement Events ===
-    render_movement_events(display, &current_state.movement_events, text_style);
+        // Manually clear the event area before drawing.
+        // This draws a black rectangle over the entire event area
+        // to ensure a clean erase before new events are drawn.
+        let event_area = embedded_graphics::primitives::Rectangle::new(
+            Point::new(0, 210), // Start point (slightly above the first text)
+            Size::new(240, 80), // Size (full width, 80 pixels high)
+        )
+        .into_styled(embedded_graphics::primitives::PrimitiveStyle::with_fill(
+            Rgb565::BLACK,
+        ));
+        let _ = event_area.draw(display);
+
+        // === Render Movement Events ===
+        render_movement_events(display, &current_state.movement_events, text_style);
+    }
 }
 
 /// Render weather icon (bitmap or emoji fallback)
@@ -523,12 +553,13 @@ fn render_weather_icon(
 ) {
     let icon_color = get_weather_icon_color(icon_code);
 
-    // Try to render bitmap icon
+    // Try to render bitmap icon from `weather_icons.rs`
     if let Some(icon_data) = get_weather_icon(icon_code) {
         let icon_width: usize = 40;
         let icon_height: usize = 40;
         let mut pixels = Vec::with_capacity(icon_width * icon_height);
 
+        // Decode the 1-bit-per-pixel bitmap data
         for y in 0..icon_height {
             for x in 0..icon_width {
                 let byte_index = y * (icon_width / 8) + (x / 8);
@@ -543,7 +574,7 @@ fn render_weather_icon(
         }
         let _ = display.draw_iter(pixels.iter().cloned());
     } else {
-        // Fallback to emoji symbol
+        // Fallback to emoji symbol if bitmap is not found
         let symbol = get_weather_symbol(icon_code);
         let _ = Text::new(symbol, Point::new(160, 70), *symbol_style).draw(display);
     }
@@ -558,10 +589,11 @@ fn render_movement_events(
     let mut y_offset = 220;
 
     for (i, event) in events.iter().enumerate() {
+        // Alternate between left and right columns
         let x_pos = if i % 2 == 0 { 10 } else { 120 };
         let _ = Text::new(event, Point::new(x_pos, y_offset), *text_style).draw(display);
 
-        // Move to next row after every two events
+        // Move to the next row after every two events
         if i % 2 != 0 {
             y_offset += 20;
         }
@@ -586,6 +618,14 @@ fn main() -> anyhow::Result<()> {
     // === Initialize Wi-Fi ===
     let mut wifi = setup_wifi(peripherals.modem, &secrets)?;
 
+    // === Initialize SNTP (Network Time Protocol) ===
+    let sntp = EspSntp::new_default()?;
+    info!("Waiting for time synchronization...");
+    while sntp.get_sync_status() != SyncStatus::Completed {
+        FreeRtos::delay_ms(100);
+    }
+    info!("Time synchronized!");
+
     // === Initialize Movement Events Queue ===
     *MOVEMENT_EVENTS
         .lock()
@@ -603,31 +643,23 @@ fn main() -> anyhow::Result<()> {
 
     let mut mqtt_client = setup_mqtt(&secrets, movement_events_arc)?;
 
-    // === Initialize SNTP (Network Time Protocol) ===
-    let sntp = EspSntp::new_default()?;
-    info!("Waiting for time synchronization...");
-    while sntp.get_sync_status() != SyncStatus::Completed {
-        FreeRtos::delay_ms(100);
-    }
-    info!("Time synchronized!");
-
     // === Initialize Display ===
     info!("Initializing display...");
 
-    // Pin assignments
+    // Pin assignments for the display
     let sclk = peripherals.pins.gpio18;
     let mosi = peripherals.pins.gpio23;
     let cs = peripherals.pins.gpio15;
     let dc = peripherals.pins.gpio21;
     let mut rst = PinDriver::output(peripherals.pins.gpio22)?;
 
-    // Hardware reset sequence
+    // Perform a hardware reset on the display
     rst.set_low()?;
     FreeRtos::delay_ms(50);
     rst.set_high()?;
     FreeRtos::delay_ms(200);
 
-    // Configure SPI bus
+    // Configure the SPI bus
     let spi_config = Config::new().baudrate(26.MHz().into());
     let spi_driver = SpiDriver::new(
         peripherals.spi2,
@@ -642,7 +674,7 @@ fn main() -> anyhow::Result<()> {
         pin: PinDriver::output(dc.downgrade_output())?,
     };
 
-    // Initialize display driver
+    // Initialize the display driver using the `mipidsi` crate
     static mut DISPLAY_BUFFER: [u8; 240 * 10 * 2] = [0u8; 240 * 10 * 2];
     let di = unsafe {
         mipidsi::interface::SpiInterface::new(
@@ -690,25 +722,26 @@ fn main() -> anyhow::Result<()> {
         let (year, month, day, hour, minute, second) =
             time_utils::utc_to_berlin(utc_timestamp as i64);
 
-        // Only update if the second has changed
+        // Only update the display if the second has changed, to reduce CPU usage.
         if second == last_second {
-            FreeRtos::delay_ms(100); // Short sleep to reduce CPU usage
+            FreeRtos::delay_ms(100); // Short sleep
             continue;
         }
         last_second = second;
 
         // === Weather Update Logic ===
+        // Fetch new weather data every `weather_interval` seconds
         if utc_timestamp >= last_weather_fetch + weather_interval || last_weather_fetch == 0 {
             info!("Fetching weather update...");
 
-            // Ensure Wi-Fi is connected
+            // Ensure Wi-Fi is still connected before making the request
             if !wifi.is_connected()? {
                 info!("Wi-Fi disconnected, reconnecting...");
                 wifi.connect()?;
                 wifi.wait_netif_up()?;
             }
 
-            // Fetch weather data
+            // Fetch weather data from OpenWeatherMap
             match get_weather(&secrets.openweather.api_key, &secrets.openweather.city) {
                 Ok(weather) => {
                     info!(
@@ -716,12 +749,12 @@ fn main() -> anyhow::Result<()> {
                         weather.name, weather.main.temp
                     );
 
-                    // Store weather data globally
+                    // Store weather data in the global static variable
                     *LAST_WEATHER_DATA.lock().map_err(|e| {
                         anyhow::anyhow!("Failed to lock LAST_WEATHER_DATA: {}", e)
                     })? = Some(weather);
 
-                    // Publish weather data via MQTT
+                    // Publish the new weather data to an MQTT topic
                     if let Ok(payload) = serde_json::to_string(
                         LAST_WEATHER_DATA
                             .lock()
@@ -762,7 +795,7 @@ fn main() -> anyhow::Result<()> {
             time_utils::get_timezone_str(year, month, day, hour)
         );
 
-        // Weather data
+        // Weather data from the global static variable
         if let Some(weather) = LAST_WEATHER_DATA
             .lock()
             .map_err(|e| anyhow::anyhow!("Failed to lock LAST_WEATHER_DATA: {}", e))?
@@ -776,7 +809,7 @@ fn main() -> anyhow::Result<()> {
             current_state.hum_str = format!("H: {}%", weather.main.humidity);
         }
 
-        // Movement events
+        // Movement events from the global queue
         let movement_events_guard = MOVEMENT_EVENTS
             .lock()
             .map_err(|e| anyhow::anyhow!("Failed to lock MOVEMENT_EVENTS: {}", e))?;
@@ -787,15 +820,13 @@ fn main() -> anyhow::Result<()> {
             current_state.movement_events = events.iter().cloned().collect();
         }
 
-        // === Render Display (only if changed) ===
-        let state_changed = current_state != previous_state;
-
-        if state_changed {
+        // === Render Display (only if the state has changed) ===
+        if current_state != previous_state {
             render_display(&mut display, &current_state, &text_style, &symbol_style);
             previous_state = current_state;
         }
 
-        // Very short delay - the second-check above prevents rapid updates
+        // Short delay to yield to other tasks
         FreeRtos::delay_ms(50);
     }
 }

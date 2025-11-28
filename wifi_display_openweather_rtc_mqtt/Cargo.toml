@@ -27,7 +27,7 @@ experimental = ["esp-idf-svc/experimental"]
 
 [dependencies]
 # ESP-IDF services.
-esp-idf-svc = { version = "0.51", features = ["alloc"] }
+esp-idf-svc = { version = "0.51", features = ["alloc", "experimental"] }
 # ESP-IDF hardware abstraction layer.
 esp-idf-hal = "0.45"
 # ESP-IDF system bindings.
