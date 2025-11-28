@@ -99,7 +99,7 @@ struct Wind {
 
 /// Display state structure for change detection
 /// Used to minimize screen flicker by only redrawing when data changes
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 struct DisplayState {
     time_str: String,
     date_str: String,
@@ -205,7 +205,7 @@ fn get_weather_icon_color(icon_code: &str) -> Rgb565 {
 }
 
 // ===============================================================================
-// WIFI SETUP
+// WI-FI SETUP
 // ===============================================================================
 
 /// Initialize and connect to Wi-Fi
@@ -220,17 +220,27 @@ fn setup_wifi(
     modem: impl esp_idf_hal::peripheral::Peripheral<P = esp_idf_hal::modem::Modem> + 'static,
     secrets: &Secrets,
 ) -> anyhow::Result<BlockingWifi<EspWifi<'static>>> {
-    info!("Initializing WiFi...");
+    info!("Initializing Wi-Fi...");
 
     let sys_loop = EspSystemEventLoop::take()?;
     let nvs = EspDefaultNvsPartition::take()?;
 
     let mut wifi = BlockingWifi::wrap(EspWifi::new(modem, sys_loop.clone(), Some(nvs))?, sys_loop)?;
 
-    // Configure WiFi credentials
+    // Configure Wi-Fi credentials
     let wifi_config = Configuration::Client(ClientConfiguration {
-        ssid: secrets.wifi.ssid.as_str().try_into().unwrap(),
-        password: secrets.wifi.password.as_str().try_into().unwrap(),
+        ssid: secrets
+            .wifi
+            .ssid
+            .as_str()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Failed to parse SSID"))?,
+        password: secrets
+            .wifi
+            .password
+            .as_str()
+            .try_into()
+            .map_err(|_| anyhow::anyhow!("Failed to parse password"))?,
         auth_method: if secrets.wifi.password.is_empty() {
             AuthMethod::None
         } else {
@@ -244,7 +254,7 @@ fn setup_wifi(
     wifi.connect()?;
     wifi.wait_netif_up()?;
 
-    info!("WiFi connected successfully!");
+    info!("Wi-Fi connected successfully!");
     Ok(wifi)
 }
 
@@ -316,7 +326,9 @@ fn setup_mqtt(
                                 // Handle movement detection message
                                 if let Some(t) = topic {
                                     if t == "Bewegung" && received_data == "1" {
-                                        handle_movement_event(&movement_events);
+                                        if let Err(e) = handle_movement_event(&movement_events) {
+                                            error!("Failed to handle movement event: {}", e);
+                                        }
                                     }
                                 }
                             }
@@ -352,22 +364,24 @@ fn setup_mqtt(
 
 /// Handle a movement detection event
 /// Converts current time to Berlin timezone and adds to event queue
-fn handle_movement_event(movement_events: &Arc<Mutex<VecDeque<String>>>) {
+fn handle_movement_event(movement_events: &Arc<Mutex<VecDeque<String>>>) -> anyhow::Result<()> {
     let now = SystemTime::now();
-    if let Ok(since_the_epoch) = now.duration_since(UNIX_EPOCH) {
-        let utc_timestamp = since_the_epoch.as_secs();
-        let (_year, _month, _day, hour, minute, second) =
-            time_utils::utc_to_berlin(utc_timestamp as i64);
-        let formatted_time = time_utils::format_time(hour, minute, second);
+    let since_the_epoch = now.duration_since(UNIX_EPOCH)?;
+    let utc_timestamp = since_the_epoch.as_secs();
+    let (_year, _month, _day, hour, minute, second) =
+        time_utils::utc_to_berlin(utc_timestamp as i64);
+    let formatted_time = time_utils::format_time(hour, minute, second);
 
-        // Add to queue (max 6 events, FIFO)
-        let mut events = movement_events.lock().unwrap();
-        events.push_front(formatted_time.clone());
-        if events.len() > 6 {
-            events.pop_back();
-        }
-        info!("Movement detected at: {}", formatted_time);
+    // Add to queue (max 6 events, FIFO)
+    let mut events = movement_events
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Mutex lock failed: {}", e))?;
+    events.push_front(formatted_time.clone());
+    if events.len() > 6 {
+        events.pop_back();
     }
+    info!("Movement detected at: {}", formatted_time);
+    Ok(())
 }
 
 // ===============================================================================
@@ -460,47 +474,38 @@ fn render_display(
     symbol_style: &MonoTextStyle<Rgb565>,
 ) {
     // Clear entire display
-    display.clear(Rgb565::BLACK).ok();
+    if let Err(_) = display.clear(Rgb565::BLACK) {
+        error!("Failed to clear display");
+        return;
+    }
 
     // === Render Date and Time ===
-    Text::new(&current_state.date_str, Point::new(10, 20), *text_style)
-        .draw(display)
-        .ok();
+    let _ = Text::new(&current_state.date_str, Point::new(10, 20), *text_style).draw(display);
 
-    Text::new(&current_state.time_str, Point::new(10, 40), *text_style)
-        .draw(display)
-        .ok();
+    let _ = Text::new(&current_state.time_str, Point::new(10, 40), *text_style).draw(display);
 
     // === Render Weather Data ===
     if !current_state.city_name.is_empty() {
         // City name
-        Text::new(&current_state.city_name, Point::new(10, 60), *text_style)
-            .draw(display)
-            .ok();
+        let _ = Text::new(&current_state.city_name, Point::new(10, 60), *text_style).draw(display);
 
         // Temperature
-        Text::new(&current_state.weather_temp, Point::new(10, 90), *text_style)
-            .draw(display)
-            .ok();
+        let _ =
+            Text::new(&current_state.weather_temp, Point::new(10, 90), *text_style).draw(display);
 
         // Description
-        Text::new(
+        let _ = Text::new(
             &current_state.weather_desc,
             Point::new(10, 120),
             *text_style,
         )
-        .draw(display)
-        .ok();
+        .draw(display);
 
         // Wind speed
-        Text::new(&current_state.wind_str, Point::new(10, 150), *text_style)
-            .draw(display)
-            .ok();
+        let _ = Text::new(&current_state.wind_str, Point::new(10, 150), *text_style).draw(display);
 
         // Humidity
-        Text::new(&current_state.hum_str, Point::new(10, 180), *text_style)
-            .draw(display)
-            .ok();
+        let _ = Text::new(&current_state.hum_str, Point::new(10, 180), *text_style).draw(display);
 
         // Weather icon
         render_weather_icon(display, &current_state.weather_icon, symbol_style);
@@ -536,13 +541,11 @@ fn render_weather_icon(
                 }
             }
         }
-        display.draw_iter(pixels.iter().cloned()).ok();
+        let _ = display.draw_iter(pixels.iter().cloned());
     } else {
         // Fallback to emoji symbol
         let symbol = get_weather_symbol(icon_code);
-        Text::new(symbol, Point::new(160, 70), *symbol_style)
-            .draw(display)
-            .ok();
+        let _ = Text::new(symbol, Point::new(160, 70), *symbol_style).draw(display);
     }
 }
 
@@ -556,9 +559,7 @@ fn render_movement_events(
 
     for (i, event) in events.iter().enumerate() {
         let x_pos = if i % 2 == 0 { 10 } else { 120 };
-        Text::new(event, Point::new(x_pos, y_offset), *text_style)
-            .draw(display)
-            .ok();
+        let _ = Text::new(event, Point::new(x_pos, y_offset), *text_style).draw(display);
 
         // Move to next row after every two events
         if i % 2 != 0 {
@@ -582,19 +583,22 @@ fn main() -> anyhow::Result<()> {
     let secrets = Secrets::load()?;
     let peripherals = Peripherals::take()?;
 
-    // === Initialize WiFi ===
+    // === Initialize Wi-Fi ===
     let mut wifi = setup_wifi(peripherals.modem, &secrets)?;
 
     // === Initialize Movement Events Queue ===
-    *MOVEMENT_EVENTS.lock().unwrap() = Some(Arc::new(Mutex::new(VecDeque::new())));
+    *MOVEMENT_EVENTS
+        .lock()
+        .map_err(|e| anyhow::anyhow!("Failed to lock MOVEMENT_EVENTS: {}", e))? =
+        Some(Arc::new(Mutex::new(VecDeque::new())));
     info!("Movement events queue initialized");
 
     // === Initialize MQTT ===
     let movement_events_arc = MOVEMENT_EVENTS
         .lock()
-        .unwrap()
+        .map_err(|e| anyhow::anyhow!("Failed to lock MOVEMENT_EVENTS: {}", e))?
         .as_ref()
-        .expect("MOVEMENT_EVENTS should be initialized")
+        .ok_or_else(|| anyhow::anyhow!("MOVEMENT_EVENTS not initialized"))?
         .clone();
 
     let mut mqtt_client = setup_mqtt(&secrets, movement_events_arc)?;
@@ -674,7 +678,7 @@ fn main() -> anyhow::Result<()> {
     let mut last_weather_fetch = 0u64;
     let weather_interval = 15 * 60; // 15 minutes in seconds
     let mut previous_state = DisplayState::new();
-    let mut force_redraw = true; // Force initial render
+    let mut last_second = 0u32;
 
     loop {
         // Get current timestamp
@@ -686,13 +690,20 @@ fn main() -> anyhow::Result<()> {
         let (year, month, day, hour, minute, second) =
             time_utils::utc_to_berlin(utc_timestamp as i64);
 
+        // Only update if the second has changed
+        if second == last_second {
+            FreeRtos::delay_ms(100); // Short sleep to reduce CPU usage
+            continue;
+        }
+        last_second = second;
+
         // === Weather Update Logic ===
         if utc_timestamp >= last_weather_fetch + weather_interval || last_weather_fetch == 0 {
             info!("Fetching weather update...");
 
             // Ensure Wi-Fi is connected
             if !wifi.is_connected()? {
-                info!("WiFi disconnected, reconnecting...");
+                info!("Wi-Fi disconnected, reconnecting...");
                 wifi.connect()?;
                 wifi.wait_netif_up()?;
             }
@@ -706,12 +717,20 @@ fn main() -> anyhow::Result<()> {
                     );
 
                     // Store weather data globally
-                    *LAST_WEATHER_DATA.lock().unwrap() = Some(weather);
+                    *LAST_WEATHER_DATA.lock().map_err(|e| {
+                        anyhow::anyhow!("Failed to lock LAST_WEATHER_DATA: {}", e)
+                    })? = Some(weather);
 
                     // Publish weather data via MQTT
-                    if let Ok(payload) =
-                        serde_json::to_string(&LAST_WEATHER_DATA.lock().unwrap().as_ref().unwrap())
-                    {
+                    if let Ok(payload) = serde_json::to_string(
+                        LAST_WEATHER_DATA
+                            .lock()
+                            .map_err(|e| {
+                                anyhow::anyhow!("Failed to lock LAST_WEATHER_DATA: {}", e)
+                            })?
+                            .as_ref()
+                            .ok_or_else(|| anyhow::anyhow!("Weather data not available"))?,
+                    ) {
                         let topic = format!("weather/{}", secrets.openweather.city);
                         match mqtt_client.publish(
                             topic.as_str(),
@@ -725,7 +744,6 @@ fn main() -> anyhow::Result<()> {
                     }
 
                     last_weather_fetch = utc_timestamp;
-                    force_redraw = true; // Trigger display update
                 }
                 Err(e) => {
                     error!("Weather fetch error: {}", e);
@@ -745,7 +763,11 @@ fn main() -> anyhow::Result<()> {
         );
 
         // Weather data
-        if let Some(weather) = LAST_WEATHER_DATA.lock().unwrap().as_ref() {
+        if let Some(weather) = LAST_WEATHER_DATA
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock LAST_WEATHER_DATA: {}", e))?
+            .as_ref()
+        {
             current_state.city_name = weather.name.clone();
             current_state.weather_temp = format!("{:.1}°C", weather.main.temp);
             current_state.weather_desc = weather.weather[0].description.clone();
@@ -755,22 +777,25 @@ fn main() -> anyhow::Result<()> {
         }
 
         // Movement events
-        let movement_events_guard = MOVEMENT_EVENTS.lock().unwrap();
+        let movement_events_guard = MOVEMENT_EVENTS
+            .lock()
+            .map_err(|e| anyhow::anyhow!("Failed to lock MOVEMENT_EVENTS: {}", e))?;
         if let Some(events_arc) = movement_events_guard.as_ref() {
-            let events = events_arc.lock().unwrap();
+            let events = events_arc
+                .lock()
+                .map_err(|e| anyhow::anyhow!("Failed to lock movement events: {}", e))?;
             current_state.movement_events = events.iter().cloned().collect();
         }
 
         // === Render Display (only if changed) ===
         let state_changed = current_state != previous_state;
 
-        if state_changed || force_redraw {
+        if state_changed {
             render_display(&mut display, &current_state, &text_style, &symbol_style);
             previous_state = current_state;
-            force_redraw = false;
         }
 
-        // Wait for next update cycle
-        FreeRtos::delay_ms(1000);
+        // Very short delay - the second-check above prevents rapid updates
+        FreeRtos::delay_ms(50);
     }
 }
